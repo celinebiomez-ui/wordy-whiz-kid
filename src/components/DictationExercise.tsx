@@ -17,32 +17,55 @@ function normalize(s: string): string {
 }
 
 function generatePhrase(word: DictationWord): string {
-  // For level 2, generate simple phrases
-  if (word.isVerb && word.tense) {
-    const phrases: Record<string, string[]> = {
+  // For verbs with expectedAnswers, build a phrase using one of them
+  if (word.isVerb && word.expectedAnswers && word.expectedAnswers.length > 0) {
+    const conjugated = word.expectedAnswers[Math.floor(Math.random() * word.expectedAnswers.length)];
+    const complements: Record<string, string[]> = {
       'imparfait': [
-        `Je ${word.text.toLowerCase()}ais tous les jours.`,
-        `Tu ${word.text.toLowerCase()}ais souvent.`,
-        `Il ${word.text.toLowerCase()}ait à la maison.`,
+        `${conjugated} tous les jours.`,
+        `${conjugated} souvent le soir.`,
+        `${conjugated} quand il faisait beau.`,
       ],
       'présent': [
-        `Je ${word.text.toLowerCase()}e chaque matin.`,
-        `Tu ${word.text.toLowerCase()}es bien.`,
+        `${conjugated} chaque matin.`,
+        `${conjugated} avec plaisir.`,
+        `${conjugated} souvent.`,
       ],
       'passé composé': [
-        `J'ai ${word.text.toLowerCase()}é hier.`,
-        `Tu as ${word.text.toLowerCase()}é hier.`,
+        `${conjugated} hier soir.`,
+        `${conjugated} ce matin.`,
+        `${conjugated} la semaine dernière.`,
+      ],
+      'futur': [
+        `${conjugated} demain.`,
+        `${conjugated} bientôt.`,
+        `${conjugated} la semaine prochaine.`,
       ],
     };
-    const options = phrases[word.tense.toLowerCase()] || [`Je ${word.text.toLowerCase()}.`];
+    const tenseKey = word.tense?.toLowerCase() || '';
+    const options = complements[tenseKey] || [`${conjugated}.`];
     return options[Math.floor(Math.random() * options.length)];
   }
 
+  // For verbs without expectedAnswers, just use the infinitive in a simple context
+  if (word.isVerb) {
+    const templates = [
+      `Il aime ${word.text.toLowerCase()}.`,
+      `Elle va ${word.text.toLowerCase()}.`,
+      `On peut ${word.text.toLowerCase()}.`,
+    ];
+    return templates[Math.floor(Math.random() * templates.length)];
+  }
+
+  // For regular words, use meaningful sentence templates
+  const w = word.text.toLowerCase();
   const templates = [
-    `Le ${word.text.toLowerCase()} est joli.`,
-    `Je vois un ${word.text.toLowerCase()}.`,
-    `Le petit ${word.text.toLowerCase()} est là.`,
-    `Il y a un ${word.text.toLowerCase()} dans le jardin.`,
+    `Le ${w} est très joli.`,
+    `Je regarde le ${w}.`,
+    `Il y a un ${w} dans le jardin.`,
+    `Mon ${w} est grand.`,
+    `Elle aime ce ${w}.`,
+    `Le petit ${w} joue dehors.`,
   ];
   return templates[Math.floor(Math.random() * templates.length)];
 }
