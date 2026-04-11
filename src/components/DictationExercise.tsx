@@ -105,7 +105,7 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
   useEffect(() => {
     if (currentWord && state === 'pending') {
       // Small delay so UI renders first
-      const t = setTimeout(() => handleSpeak(), 500);
+      const t = setTimeout(() => handleSpeak(), 150);
       return () => clearTimeout(t);
     }
   }, [currentIndex, state]);
