@@ -1,0 +1,33 @@
+import { DictationList, DictationSession } from './types';
+
+const LISTS_KEY = 'dictation-lists';
+const SESSIONS_KEY = 'dictation-sessions';
+
+export function getLists(): DictationList[] {
+  const data = localStorage.getItem(LISTS_KEY);
+  return data ? JSON.parse(data) : [];
+}
+
+export function saveList(list: DictationList): void {
+  const lists = getLists();
+  const idx = lists.findIndex(l => l.id === list.id);
+  if (idx >= 0) lists[idx] = list;
+  else lists.push(list);
+  localStorage.setItem(LISTS_KEY, JSON.stringify(lists));
+}
+
+export function deleteList(id: string): void {
+  const lists = getLists().filter(l => l.id !== id);
+  localStorage.setItem(LISTS_KEY, JSON.stringify(lists));
+}
+
+export function getSessions(): DictationSession[] {
+  const data = localStorage.getItem(SESSIONS_KEY);
+  return data ? JSON.parse(data) : [];
+}
+
+export function saveSession(session: DictationSession): void {
+  const sessions = getSessions();
+  sessions.push(session);
+  localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+}
