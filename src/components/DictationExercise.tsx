@@ -112,11 +112,18 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
   // Global Enter key handler for when input is disabled (final state)
   useEffect(() => {
     if (state !== 'final') return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Enter') handleNext();
+    // Skip the first Enter keyup that caused the state transition
+    let ready = false;
+    const onKeyUp = () => { ready = true; };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && ready) handleNext();
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    window.addEventListener('keyup', onKeyUp, { once: true });
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('keydown', onKeyDown);
+    };
   }, [state, currentIndex, results]);
 
   const handleFirstValidation = () => {
