@@ -104,11 +104,20 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
   // Auto-speak on new word
   useEffect(() => {
     if (currentWord && state === 'pending') {
-      // Small delay so UI renders first
       const t = setTimeout(() => handleSpeak(), 150);
       return () => clearTimeout(t);
     }
   }, [currentIndex, state]);
+
+  // Global Enter key handler for when input is disabled (final state)
+  useEffect(() => {
+    if (state !== 'final') return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Enter') handleNext();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [state, currentIndex, results]);
 
   const handleFirstValidation = () => {
     if (!userInput.trim()) return;
