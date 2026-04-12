@@ -33,10 +33,23 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
   const [isFinished, setIsFinished] = useState(false);
 
   // Shuffle words for level 1, generate phrases for level 2
-  const [shuffledWords] = useState(() => shuffle(list.words));
-  const [phrases] = useState<GeneratedPhrase[]>(() =>
-    level === 2 ? generatePhrases(list.words) : []
-  );
+  const [shuffledWords] = useState(() => shuffle(list.words.map(w => ({
+    ...w,
+    wordType: w.wordType || (w.isVerb ? 'verbe' : 'autre'),
+    isVerb: w.isVerb ?? false,
+  }))));
+  const [phrases] = useState<GeneratedPhrase[]>(() => {
+    try {
+      return level === 2 ? generatePhrases(list.words.map(w => ({
+        ...w,
+        wordType: w.wordType || (w.isVerb ? 'verbe' : 'autre'),
+        isVerb: w.isVerb ?? false,
+      }))) : [];
+    } catch (e) {
+      console.error('Error generating phrases:', e);
+      return [];
+    }
+  });
 
   // For level 1: use shuffled words. For level 2: use phrases.
   const totalItems = level === 1 ? shuffledWords.length : phrases.length;
@@ -152,6 +165,18 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
   const lastResult = results[results.length - 1];
 
   if (isFinished) return null;
+
+  if (totalItems === 0) {
+    return (
+      <div className="max-w-2xl mx-auto text-center py-12 space-y-4">
+        <p className="text-5xl">⚠️</p>
+        <p className="text-lg text-muted-foreground font-body">Cette liste ne contient pas assez de mots pour lancer l'exercice.</p>
+        <button onClick={onBack} className="btn-playful bg-primary text-primary-foreground">
+          <Home size={16} /> Retour aux listes
+        </button>
+      </div>
+    );
+  }
 
   const progress = (currentIndex / totalItems) * 100;
 
