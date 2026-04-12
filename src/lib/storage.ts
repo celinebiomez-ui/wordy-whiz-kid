@@ -5,7 +5,16 @@ const SESSIONS_KEY = 'dictation-sessions';
 
 export function getLists(): DictationList[] {
   const data = localStorage.getItem(LISTS_KEY);
-  return data ? JSON.parse(data) : [];
+  if (!data) return [];
+  const lists: DictationList[] = JSON.parse(data);
+  // Migrate old words that lack wordType/isVerb
+  for (const list of lists) {
+    for (const word of list.words) {
+      if (!word.wordType) word.wordType = word.isVerb ? 'verbe' : 'autre';
+      if (word.isVerb === undefined) word.isVerb = word.wordType === 'verbe';
+    }
+  }
+  return lists;
 }
 
 export function saveList(list: DictationList): void {
