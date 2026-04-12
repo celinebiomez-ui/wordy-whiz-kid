@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Trash2, Edit2, BookOpen, X, Save } from 'lucide-react';
-import { DictationList, DictationWord } from '@/lib/types';
+import { DictationList, DictationWord, WordType } from '@/lib/types';
 import { getLists, saveList, deleteList } from '@/lib/storage';
 
 interface Props {
@@ -12,12 +12,29 @@ function generateId() {
   return Math.random().toString(36).slice(2, 10);
 }
 
+const wordTypeOptions: { value: WordType; label: string; emoji: string }[] = [
+  { value: 'nom', label: 'Nom', emoji: '📝' },
+  { value: 'verbe', label: 'Verbe', emoji: '🔤' },
+  { value: 'adjectif', label: 'Adjectif', emoji: '🎨' },
+  { value: 'adverbe', label: 'Adverbe', emoji: '⚡' },
+  { value: 'conjonction', label: 'Conjonction', emoji: '🔗' },
+  { value: 'preposition', label: 'Préposition', emoji: '📍' },
+  { value: 'pronom', label: 'Pronom', emoji: '👤' },
+  { value: 'determinant', label: 'Déterminant', emoji: '📌' },
+  { value: 'expression', label: 'Expression', emoji: '💬' },
+  { value: 'autre', label: 'Autre', emoji: '📎' },
+];
+
+function getWordTypeInfo(type: WordType) {
+  return wordTypeOptions.find(o => o.value === type) || wordTypeOptions[wordTypeOptions.length - 1];
+}
+
 export default function ListManager({ onStartExercise }: Props) {
   const [lists, setLists] = useState<DictationList[]>(getLists);
   const [editing, setEditing] = useState<DictationList | null>(null);
   const [newWordText, setNewWordText] = useState('');
   const [newWordTense, setNewWordTense] = useState('');
-  const [newWordIsVerb, setNewWordIsVerb] = useState(false);
+  const [newWordType, setNewWordType] = useState<WordType>('nom');
   const [newListName, setNewListName] = useState('');
   const [showCreate, setShowCreate] = useState(false);
 
@@ -45,18 +62,20 @@ export default function ListManager({ onStartExercise }: Props) {
 
   const handleAddWord = () => {
     if (!editing || !newWordText.trim()) return;
+    const isVerb = newWordType === 'verbe';
     const word: DictationWord = {
       id: generateId(),
       text: newWordText.trim(),
-      tense: newWordIsVerb ? newWordTense.trim() || undefined : undefined,
-      isVerb: newWordIsVerb,
+      wordType: newWordType,
+      tense: isVerb ? newWordTense.trim() || undefined : undefined,
+      isVerb,
     };
     const updated = { ...editing, words: [...editing.words, word] };
     saveList(updated);
     setEditing(updated);
     setNewWordText('');
     setNewWordTense('');
-    setNewWordIsVerb(false);
+    setNewWordType('nom');
     refresh();
   };
 
@@ -124,22 +143,25 @@ export default function ListManager({ onStartExercise }: Props) {
 
             {/* Word list */}
             <div className="space-y-2">
-              {editing.words.map(word => (
-                <div key={word.id} className="flex items-center gap-3 rounded-xl bg-muted/50 px-4 py-2">
-                  <span className="flex-1 font-body text-foreground">
-                    {word.text}
-                    {word.isVerb && word.tense && (
-                      <span className="ml-2 text-sm text-accent font-semibold">({word.tense})</span>
-                    )}
-                  </span>
-                  <span className="text-xs rounded-lg bg-secondary/20 text-secondary px-2 py-1">
-                    {word.isVerb ? '🔤 verbe' : '📝 mot'}
-                  </span>
-                  <button onClick={() => handleRemoveWord(word.id)} className="text-destructive hover:text-destructive/80">
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              ))}
+              {editing.words.map(word => {
+                const typeInfo = getWordTypeInfo(word.wordType || 'autre');
+                return (
+                  <div key={word.id} className="flex items-center gap-3 rounded-xl bg-muted/50 px-4 py-2">
+                    <span className="flex-1 font-body text-foreground">
+                      {word.text}
+                      {word.isVerb && word.tense && (
+                        <span className="ml-2 text-sm text-accent font-semibold">({word.tense})</span>
+                      )}
+                    </span>
+                    <span className="text-xs rounded-lg bg-secondary/20 text-secondary px-2 py-1">
+                      {typeInfo.emoji} {typeInfo.label}
+                    </span>
+                    <button onClick={() => handleRemoveWord(word.id)} className="text-destructive hover:text-destructive/80">
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                );
+              })}
               {editing.words.length === 0 && (
                 <p className="text-center text-muted-foreground py-4">Aucun mot. Ajoutez-en ci-dessous !</p>
               )}
@@ -154,22 +176,26 @@ export default function ListManager({ onStartExercise }: Props) {
                   placeholder="Mot ou verbe..."
                   className="flex-1 rounded-xl bg-card px-4 py-3 font-body text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   onKeyDown={e => e.key === 'Enter' && handleAddWord()}
+                  spellCheck={false}
                 />
                 <button onClick={handleAddWord} className="btn-playful bg-primary text-primary-foreground text-sm">
                   <Plus size={18} /> Ajouter
                 </button>
               </div>
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={newWordIsVerb}
-                    onChange={e => setNewWordIsVerb(e.target.checked)}
-                    className="rounded border-border text-primary focus:ring-primary w-5 h-5"
-                  />
-                  <span className="font-body text-foreground">C'est un verbe</span>
-                </label>
-                {newWordIsVerb && (
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="font-body text-sm text-muted-foreground">Type :</span>
+                <select
+                  value={newWordType}
+                  onChange={e => setNewWordType(e.target.value as WordType)}
+                  className="rounded-xl bg-card px-3 py-2 text-sm font-body text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  {wordTypeOptions.map(opt => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.emoji} {opt.label}
+                    </option>
+                  ))}
+                </select>
+                {newWordType === 'verbe' && (
                   <input
                     value={newWordTense}
                     onChange={e => setNewWordTense(e.target.value)}

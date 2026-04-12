@@ -1,6 +1,9 @@
+export type WordType = 'nom' | 'verbe' | 'adjectif' | 'adverbe' | 'conjonction' | 'pronom' | 'determinant' | 'preposition' | 'expression' | 'autre';
+
 export interface DictationWord {
   id: string;
   text: string;
+  wordType: WordType;
   // For verbs: the tense to conjugate
   tense?: string;
   // Expected answers (e.g. for "Manger (imparfait)" → ["je mangeais", "tu mangeais", ...])

@@ -4,6 +4,8 @@ import { Volume2, Check, ArrowRight, RotateCcw, Home } from 'lucide-react';
 import { DictationList, DictationWord, WordResult, DictationSession, ValidationState } from '@/lib/types';
 import { useSpeech } from '@/hooks/useSpeech';
 import { saveSession } from '@/lib/storage';
+import { generatePhrases, shuffle, GeneratedPhrase } from '@/lib/phraseGenerator';
+import WordDiff from '@/components/WordDiff';
 
 interface Props {
   list: DictationList;
@@ -14,60 +16,6 @@ interface Props {
 
 function normalize(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-function generatePhrase(word: DictationWord): string {
-  // For verbs with expectedAnswers, build a phrase using one of them
-  if (word.isVerb && word.expectedAnswers && word.expectedAnswers.length > 0) {
-    const conjugated = word.expectedAnswers[Math.floor(Math.random() * word.expectedAnswers.length)];
-    const complements: Record<string, string[]> = {
-      'imparfait': [
-        `${conjugated} tous les jours.`,
-        `${conjugated} souvent le soir.`,
-        `${conjugated} quand il faisait beau.`,
-      ],
-      'présent': [
-        `${conjugated} chaque matin.`,
-        `${conjugated} avec plaisir.`,
-        `${conjugated} souvent.`,
-      ],
-      'passé composé': [
-        `${conjugated} hier soir.`,
-        `${conjugated} ce matin.`,
-        `${conjugated} la semaine dernière.`,
-      ],
-      'futur': [
-        `${conjugated} demain.`,
-        `${conjugated} bientôt.`,
-        `${conjugated} la semaine prochaine.`,
-      ],
-    };
-    const tenseKey = word.tense?.toLowerCase() || '';
-    const options = complements[tenseKey] || [`${conjugated}.`];
-    return options[Math.floor(Math.random() * options.length)];
-  }
-
-  // For verbs without expectedAnswers, just use the infinitive in a simple context
-  if (word.isVerb) {
-    const templates = [
-      `Il aime ${word.text.toLowerCase()}.`,
-      `Elle va ${word.text.toLowerCase()}.`,
-      `On peut ${word.text.toLowerCase()}.`,
-    ];
-    return templates[Math.floor(Math.random() * templates.length)];
-  }
-
-  // For regular words, use meaningful sentence templates
-  const w = word.text.toLowerCase();
-  const templates = [
-    `Le ${w} est très joli.`,
-    `Je regarde le ${w}.`,
-    `Il y a un ${w} dans le jardin.`,
-    `Mon ${w} est grand.`,
-    `Elle aime ce ${w}.`,
-    `Le petit ${w} joue dehors.`,
-  ];
-  return templates[Math.floor(Math.random() * templates.length)];
 }
 
 function generateId() {
@@ -84,18 +32,27 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
   const [firstAttempt, setFirstAttempt] = useState('');
   const [isFinished, setIsFinished] = useState(false);
 
-  // Pre-generate phrases for level 2
-  const [phrases] = useState(() =>
-    level === 2 ? list.words.map(w => generatePhrase(w)) : []
+  // Shuffle words for level 1, generate phrases for level 2
+  const [shuffledWords] = useState(() => shuffle(list.words));
+  const [phrases] = useState<GeneratedPhrase[]>(() =>
+    level === 2 ? generatePhrases(list.words) : []
   );
 
-  const currentWord = list.words[currentIndex];
-  const expectedText = level === 2 ? phrases[currentIndex] : currentWord?.text;
+  // For level 1: use shuffled words. For level 2: use phrases.
+  const totalItems = level === 1 ? shuffledWords.length : phrases.length;
+
+  const currentWord = level === 1 ? shuffledWords[currentIndex] : null;
+  const currentPhrase = level === 2 ? phrases[currentIndex] : null;
+
+  const expectedText = level === 2
+    ? currentPhrase?.phrase || ''
+    : currentWord?.text || '';
+
   const displayText = level === 2
-    ? phrases[currentIndex]
+    ? currentPhrase?.phrase || ''
     : currentWord?.isVerb && currentWord?.tense
       ? `${currentWord.text} (${currentWord.tense})`
-      : currentWord?.text;
+      : currentWord?.text || '';
 
   const handleSpeak = useCallback(() => {
     if (expectedText) speak(expectedText);
@@ -103,7 +60,7 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
 
   // Auto-speak on new word
   useEffect(() => {
-    if (currentWord && state === 'pending') {
+    if (state === 'pending' && expectedText) {
       const t = setTimeout(() => handleSpeak(), 150);
       return () => clearTimeout(t);
     }
@@ -112,7 +69,6 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
   // Global Enter key handler for when input is disabled (final state)
   useEffect(() => {
     if (state !== 'final') return;
-    // Skip the first Enter keyup that caused the state transition
     let ready = false;
     const onKeyUp = () => { ready = true; };
     const onKeyDown = (e: KeyboardEvent) => {
@@ -130,12 +86,11 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
     if (!userInput.trim()) return;
     setFirstAttempt(userInput);
 
-    if (normalize(userInput) === normalize(expectedText || '')) {
-      // Correct on first try
+    if (normalize(userInput) === normalize(expectedText)) {
       const result: WordResult = {
-        wordId: currentWord.id,
-        word: displayText || '',
-        expected: expectedText || '',
+        wordId: currentWord?.id || currentPhrase?.wordIds[0] || '',
+        word: displayText,
+        expected: expectedText,
         firstAttempt: userInput,
         score: 1,
         state: 'final',
@@ -144,7 +99,6 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
       setState('final');
       setShowCorrection(false);
     } else {
-      // Show errors, let them correct
       setState('correcting');
       setShowCorrection(true);
     }
@@ -152,11 +106,11 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
 
   const handleSecondValidation = () => {
     if (!userInput.trim()) return;
-    const isCorrect = normalize(userInput) === normalize(expectedText || '');
+    const isCorrect = normalize(userInput) === normalize(expectedText);
     const result: WordResult = {
-      wordId: currentWord.id,
-      word: displayText || '',
-      expected: expectedText || '',
+      wordId: currentWord?.id || currentPhrase?.wordIds[0] || '',
+      word: displayText,
+      expected: expectedText,
       firstAttempt,
       secondAttempt: userInput,
       score: isCorrect ? 0.5 : 0,
@@ -168,8 +122,7 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
   };
 
   const handleNext = () => {
-    if (currentIndex + 1 >= list.words.length) {
-      // Finish
+    if (currentIndex + 1 >= totalItems) {
       const allResults = [...results];
       const totalScore = allResults.reduce((sum, r) => sum + r.score, 0);
       const maxScore = allResults.length;
@@ -200,7 +153,7 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
 
   if (isFinished) return null;
 
-  const progress = ((currentIndex) / list.words.length) * 100;
+  const progress = (currentIndex / totalItems) * 100;
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -216,7 +169,7 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
           <h3 className="font-display text-lg text-foreground">{list.name}</h3>
         </div>
         <span className="text-sm font-body text-muted-foreground">
-          {currentIndex + 1}/{list.words.length}
+          {currentIndex + 1}/{totalItems}
         </span>
       </div>
 
@@ -257,13 +210,17 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
             value={userInput}
             onChange={e => setUserInput(e.target.value)}
             placeholder="Écris ta réponse ici..."
+            spellCheck={false}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
             className={`w-full rounded-xl px-5 py-4 text-lg font-body focus:outline-none focus:ring-3 transition-colors ${
               state === 'final' && lastResult
                 ? lastResult.score === 1
                   ? 'bg-success/10 ring-2 ring-success text-success'
                   : lastResult.score === 0.5
                     ? 'bg-success/10 ring-2 ring-success text-success'
-                    : 'bg-destructive/10 ring-2 ring-destructive text-destructive'
+                    : 'bg-destructive/10 ring-2 ring-destructive text-foreground'
                 : state === 'correcting'
                   ? 'bg-warning/10 ring-2 ring-warning text-foreground'
                   : 'bg-muted text-foreground focus:ring-primary'
@@ -273,7 +230,6 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
               if (e.key === 'Enter') {
                 if (state === 'pending') handleFirstValidation();
                 else if (state === 'correcting') handleSecondValidation();
-                else if (state === 'final') handleNext();
               }
             }}
             autoFocus
@@ -288,8 +244,8 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
                 exit={{ opacity: 0 }}
                 className="rounded-xl bg-warning/10 border border-warning/30 p-4"
               >
-                <p className="text-sm font-semibold text-warning-foreground mb-1">⚠️ Pas tout à fait ! Corrige et réessaie.</p>
-                <p className="text-sm text-muted-foreground">Ta réponse : <span className="line-through text-destructive">{firstAttempt}</span></p>
+                <p className="text-sm font-semibold text-warning-foreground mb-2">⚠️ Pas tout à fait ! Corrige et réessaie.</p>
+                <WordDiff expected={expectedText} attempt={firstAttempt} />
               </motion.div>
             )}
 
@@ -311,10 +267,9 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
                 )}
                 {lastResult.score === 0 && (
                   <div>
-                    <p className="text-destructive font-bold mb-1">❌ Pas cette fois...</p>
-                    <p className="text-sm text-foreground">
-                      Réponse correcte : <span className="font-bold text-success">{expectedText}</span>
-                    </p>
+                    <p className="text-destructive font-bold mb-2">❌ Pas cette fois...</p>
+                    <p className="text-sm text-foreground mb-1">Réponse correcte :</p>
+                    <WordDiff expected={expectedText} attempt={lastResult.secondAttempt || lastResult.firstAttempt} />
                   </div>
                 )}
                 <p className="text-xs text-muted-foreground mt-2">
@@ -339,7 +294,7 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
           )}
           {state === 'final' && (
             <button onClick={handleNext} className="btn-playful bg-primary text-primary-foreground">
-              {currentIndex + 1 >= list.words.length ? '🏁 Terminer' : <><ArrowRight size={20} /> Suivant</>}
+              {currentIndex + 1 >= totalItems ? '🏁 Terminer' : <><ArrowRight size={20} /> Suivant</>}
             </button>
           )}
         </div>
