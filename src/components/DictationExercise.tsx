@@ -33,10 +33,23 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
   const [isFinished, setIsFinished] = useState(false);
 
   // Shuffle words for level 1, generate phrases for level 2
-  const [shuffledWords] = useState(() => shuffle(list.words));
-  const [phrases] = useState<GeneratedPhrase[]>(() =>
-    level === 2 ? generatePhrases(list.words) : []
-  );
+  const [shuffledWords] = useState(() => shuffle(list.words.map(w => ({
+    ...w,
+    wordType: w.wordType || (w.isVerb ? 'verbe' : 'autre'),
+    isVerb: w.isVerb ?? false,
+  }))));
+  const [phrases] = useState<GeneratedPhrase[]>(() => {
+    try {
+      return level === 2 ? generatePhrases(list.words.map(w => ({
+        ...w,
+        wordType: w.wordType || (w.isVerb ? 'verbe' : 'autre'),
+        isVerb: w.isVerb ?? false,
+      }))) : [];
+    } catch (e) {
+      console.error('Error generating phrases:', e);
+      return [];
+    }
+  });
 
   // For level 1: use shuffled words. For level 2: use phrases.
   const totalItems = level === 1 ? shuffledWords.length : phrases.length;
