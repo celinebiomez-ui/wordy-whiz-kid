@@ -269,8 +269,7 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
                 exit={{ opacity: 0 }}
                 className="rounded-xl bg-warning/10 border border-warning/30 p-4"
               >
-                <p className="text-sm font-semibold text-warning-foreground mb-2">⚠️ Pas tout à fait ! Corrige et réessaie.</p>
-                <WordDiff expected={expectedText} attempt={firstAttempt} />
+                <p className="text-sm font-semibold text-warning-foreground">⚠️ Pas tout à fait ! Corrige et réessaie.</p>
               </motion.div>
             )}
 
