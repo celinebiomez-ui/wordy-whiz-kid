@@ -4,6 +4,7 @@ import { BookOpen, ListChecks, BarChart3, Sparkles } from 'lucide-react';
 import { AppView, DictationList, DictationSession } from '@/lib/types';
 import ListManager from '@/components/ListManager';
 import DictationExercise from '@/components/DictationExercise';
+import DictationLevel2 from '@/components/DictationLevel2';
 import ResultsHistory from '@/components/ResultsHistory';
 import SessionSummary from '@/components/SessionSummary';
 
@@ -138,12 +139,20 @@ export default function Index() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
             >
-              <DictationExercise
-                list={activeList}
-                level={activeLevel}
-                onFinish={handleFinish}
-                onBack={() => setView('lists')}
-              />
+              {activeLevel === 1 ? (
+                <DictationExercise
+                  list={activeList}
+                  level={1}
+                  onFinish={handleFinish}
+                  onBack={() => setView('lists')}
+                />
+              ) : (
+                <DictationLevel2
+                  list={activeList}
+                  onFinish={handleFinish}
+                  onBack={() => setView('lists')}
+                />
+              )}
             </motion.div>
           )}
 
