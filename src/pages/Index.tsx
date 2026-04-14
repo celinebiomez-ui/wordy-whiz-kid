@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BookOpen, ListChecks, BarChart3, Sparkles } from 'lucide-react';
 import { AppView, DictationList, DictationSession } from '@/lib/types';
@@ -12,6 +12,10 @@ export default function Index() {
   const [activeList, setActiveList] = useState<DictationList | null>(null);
   const [activeLevel, setActiveLevel] = useState<1 | 2>(1);
   const [lastSession, setLastSession] = useState<DictationSession | null>(null);
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [view, lastSession?.id]);
 
   const handleStartExercise = (list: DictationList, level: 1 | 2) => {
     setActiveList(list);
