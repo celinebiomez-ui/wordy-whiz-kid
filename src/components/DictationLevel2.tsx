@@ -319,10 +319,10 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
             <button
               key={word.id}
               onClick={() => handleSpeakWord(word.text)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-secondary text-secondary-foreground font-body text-sm font-semibold hover:bg-secondary/80 transition-colors cursor-pointer"
+              className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors cursor-pointer"
+              title="Écouter le mot"
             >
-              <Volume2 size={14} />
-              {word.text}
+              <Volume2 size={18} />
             </button>
           ))}
         </div>
