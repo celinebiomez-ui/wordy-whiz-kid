@@ -74,7 +74,7 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
   // Auto-speak on new word
   useEffect(() => {
     if (state === 'pending' && expectedText) {
-      const t = setTimeout(() => handleSpeak(), 150);
+      const t = setTimeout(() => handleSpeak(), 50);
       return () => clearTimeout(t);
     }
   }, [currentIndex, state]);
