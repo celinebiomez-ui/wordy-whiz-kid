@@ -71,11 +71,10 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
     if (expectedText) speak(expectedText);
   }, [expectedText, speak]);
 
-  // Auto-speak on new word
+  // Auto-speak on new word — no delay
   useEffect(() => {
     if (state === 'pending' && expectedText) {
-      const t = setTimeout(() => handleSpeak(), 50);
-      return () => clearTimeout(t);
+      handleSpeak();
     }
   }, [currentIndex, state]);
 
