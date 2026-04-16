@@ -312,7 +312,7 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
         className="card-playful"
       >
         <p className="text-sm text-muted-foreground font-body mb-3">
-          📝 Écris une phrase avec le plus de mots possible :
+          📝 Écris une ou plusieurs phrases avec le plus de mots possible :
         </p>
         <div className="flex flex-wrap gap-2">
           {remainingWords.map(word => (
