@@ -1,11 +1,39 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Trash2 } from 'lucide-react';
 import { DictationSession } from '@/lib/types';
 import { getSessions } from '@/lib/storage';
+import { supabase } from '@/integrations/supabase/client';
 
 export default function ResultsHistory() {
-  const [sessions] = useState<DictationSession[]>(() => getSessions().reverse());
+  const [sessions, setSessions] = useState<DictationSession[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      const data = await getSessions();
+      setSessions(data.reverse());
+      setLoading(false);
+    };
+    load();
+
+    const channel = supabase
+      .channel('dictation-sessions-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dictation_sessions' }, () => {
+        load();
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-muted-foreground font-body text-lg">Chargement...</p>
+      </div>
+    );
+  }
 
   if (sessions.length === 0) {
     return (

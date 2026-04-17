@@ -60,15 +60,49 @@ export async function deleteList(id: string): Promise<void> {
   }
 }
 
-// ============ SESSIONS (localStorage — résultats personnels par appareil) ============
+// ============ SESSIONS (Supabase — résultats partagés entre ordinateurs) ============
 
-export function getSessions(): DictationSession[] {
-  const data = localStorage.getItem(SESSIONS_KEY);
-  return data ? JSON.parse(data) : [];
+export async function getSessions(): Promise<DictationSession[]> {
+  const { data, error } = await supabase
+    .from('dictation_sessions')
+    .select('*')
+    .order('date', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching sessions:', error);
+    return [];
+  }
+
+  return (data || []).map(row => ({
+    id: row.id,
+    date: row.date,
+    level: row.level as 1 | 2,
+    listId: row.list_id,
+    listName: row.list_name,
+    results: row.results as any[],
+    totalScore: Number(row.total_score),
+    maxScore: Number(row.max_score),
+    percentage: Number(row.percentage),
+  }));
 }
 
-export function saveSession(session: DictationSession): void {
-  const sessions = getSessions();
-  sessions.push(session);
-  localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+export async function saveSession(session: DictationSession): Promise<void> {
+  const { error } = await supabase
+    .from('dictation_sessions')
+    .insert({
+      id: session.id,
+      date: session.date,
+      level: session.level,
+      list_id: session.listId,
+      list_name: session.listName,
+      results: session.results as any,
+      total_score: session.totalScore,
+      max_score: session.maxScore,
+      percentage: session.percentage,
+    });
+
+  if (error) {
+    console.error('Error saving session:', error);
+    throw error;
+  }
 }

@@ -38,6 +38,45 @@ export type Database = {
         }
         Relationships: []
       }
+      dictation_sessions: {
+        Row: {
+          created_at: string
+          date: string
+          id: string
+          level: number
+          list_id: string
+          list_name: string
+          max_score: number
+          percentage: number
+          results: Json
+          total_score: number
+        }
+        Insert: {
+          created_at?: string
+          date?: string
+          id: string
+          level: number
+          list_id: string
+          list_name: string
+          max_score?: number
+          percentage?: number
+          results?: Json
+          total_score?: number
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          id?: string
+          level?: number
+          list_id?: string
+          list_name?: string
+          max_score?: number
+          percentage?: number
+          results?: Json
+          total_score?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
