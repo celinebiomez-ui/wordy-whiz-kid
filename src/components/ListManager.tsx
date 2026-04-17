@@ -93,7 +93,7 @@ export default function ListManager({ onStartExercise }: Props) {
     await refresh();
   };
 
-  const handleApplySuggestion = (original: string, suggestion: string) => {
+  const handleApplySuggestion = async (original: string, suggestion: string) => {
     if (!editing) return;
     const updated = {
       ...editing,
@@ -101,12 +101,12 @@ export default function ListManager({ onStartExercise }: Props) {
         w.text === original ? { ...w, text: suggestion } : w
       ),
     };
-    saveList(updated);
+    await saveList(updated);
     setEditing(updated);
     setSpellResults(prev =>
       prev ? prev.map(r => r.original === original ? { ...r, original: suggestion, correct: true, suggestion: null } : r) : null
     );
-    refresh();
+    await refresh();
   };
 
   const handleSaveAndCheck = async () => {
