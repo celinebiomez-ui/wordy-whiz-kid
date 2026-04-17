@@ -1,34 +1,66 @@
 import { DictationList, DictationSession } from './types';
+import { supabase } from '@/integrations/supabase/client';
 
-const LISTS_KEY = 'dictation-lists';
 const SESSIONS_KEY = 'dictation-sessions';
 
-export function getLists(): DictationList[] {
-  const data = localStorage.getItem(LISTS_KEY);
-  if (!data) return [];
-  const lists: DictationList[] = JSON.parse(data);
-  // Migrate old words that lack wordType/isVerb
-  for (const list of lists) {
-    for (const word of list.words) {
-      if (!word.wordType) word.wordType = word.isVerb ? 'verbe' : 'autre';
-      if (word.isVerb === undefined) word.isVerb = word.wordType === 'verbe';
-    }
+// ============ LISTS (Supabase — partagées entre tous les ordinateurs) ============
+
+function normalizeWords(words: any[]): any[] {
+  return (words || []).map(w => ({
+    ...w,
+    wordType: w.wordType ?? (w.isVerb ? 'verbe' : 'autre'),
+    isVerb: w.isVerb ?? (w.wordType === 'verbe'),
+  }));
+}
+
+export async function getLists(): Promise<DictationList[]> {
+  const { data, error } = await supabase
+    .from('dictation_lists')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching lists:', error);
+    return [];
   }
-  return lists;
+
+  return (data || []).map(row => ({
+    id: row.id,
+    name: row.name,
+    words: normalizeWords(row.words as any[]),
+    createdAt: row.created_at,
+  }));
 }
 
-export function saveList(list: DictationList): void {
-  const lists = getLists();
-  const idx = lists.findIndex(l => l.id === list.id);
-  if (idx >= 0) lists[idx] = list;
-  else lists.push(list);
-  localStorage.setItem(LISTS_KEY, JSON.stringify(lists));
+export async function saveList(list: DictationList): Promise<void> {
+  const { error } = await supabase
+    .from('dictation_lists')
+    .upsert({
+      id: list.id,
+      name: list.name,
+      words: list.words as any,
+      created_at: list.createdAt,
+    });
+
+  if (error) {
+    console.error('Error saving list:', error);
+    throw error;
+  }
 }
 
-export function deleteList(id: string): void {
-  const lists = getLists().filter(l => l.id !== id);
-  localStorage.setItem(LISTS_KEY, JSON.stringify(lists));
+export async function deleteList(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('dictation_lists')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    console.error('Error deleting list:', error);
+    throw error;
+  }
 }
+
+// ============ SESSIONS (localStorage — résultats personnels par appareil) ============
 
 export function getSessions(): DictationSession[] {
   const data = localStorage.getItem(SESSIONS_KEY);
