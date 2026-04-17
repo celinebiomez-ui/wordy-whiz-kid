@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Trash2, Edit2, BookOpen, X, Save, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
 import { DictationList, DictationWord } from '@/lib/types';
