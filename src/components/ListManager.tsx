@@ -21,7 +21,7 @@ interface SpellCheckResult {
 }
 
 export default function ListManager({ onStartExercise }: Props) {
-  const [lists, setLists] = useState<DictationList[]>(getLists);
+  const [lists, setLists] = useState<DictationList[]>([]);
   const [editing, setEditing] = useState<DictationList | null>(null);
   const [newWordText, setNewWordText] = useState('');
   const [newListName, setNewListName] = useState('');
@@ -29,9 +29,26 @@ export default function ListManager({ onStartExercise }: Props) {
   const [isChecking, setIsChecking] = useState(false);
   const [spellResults, setSpellResults] = useState<SpellCheckResult[] | null>(null);
 
-  const refresh = () => setLists(getLists());
+  const refresh = async () => {
+    const data = await getLists();
+    setLists(data);
+  };
 
-  const handleCreateList = () => {
+  useEffect(() => {
+    refresh();
+    // Realtime: synchro entre ordinateurs
+    const channel = supabase
+      .channel('dictation-lists-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dictation_lists' }, () => {
+        refresh();
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const handleCreateList = async () => {
     if (!newListName.trim()) return;
     const list: DictationList = {
       id: generateId(),
@@ -39,19 +56,19 @@ export default function ListManager({ onStartExercise }: Props) {
       words: [],
       createdAt: new Date().toISOString(),
     };
-    saveList(list);
+    await saveList(list);
     setNewListName('');
     setShowCreate(false);
     setEditing(list);
-    refresh();
+    await refresh();
   };
 
-  const handleDeleteList = (id: string) => {
-    deleteList(id);
-    refresh();
+  const handleDeleteList = async (id: string) => {
+    await deleteList(id);
+    await refresh();
   };
 
-  const handleAddWord = () => {
+  const handleAddWord = async () => {
     if (!editing || !newWordText.trim()) return;
     const word: DictationWord = {
       id: generateId(),
@@ -60,20 +77,20 @@ export default function ListManager({ onStartExercise }: Props) {
       isVerb: false,
     };
     const updated = { ...editing, words: [...editing.words, word] };
-    saveList(updated);
+    await saveList(updated);
     setEditing(updated);
     setNewWordText('');
     setSpellResults(null);
-    refresh();
+    await refresh();
   };
 
-  const handleRemoveWord = (wordId: string) => {
+  const handleRemoveWord = async (wordId: string) => {
     if (!editing) return;
     const updated = { ...editing, words: editing.words.filter(w => w.id !== wordId) };
-    saveList(updated);
+    await saveList(updated);
     setEditing(updated);
     setSpellResults(null);
-    refresh();
+    await refresh();
   };
 
   const handleApplySuggestion = (original: string, suggestion: string) => {
