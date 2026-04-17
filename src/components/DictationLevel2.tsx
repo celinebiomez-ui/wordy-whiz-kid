@@ -1,7 +1,7 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Volume2, Check, ArrowRight, RotateCcw, Home, Loader2 } from 'lucide-react';
-import { DictationList, DictationWord, WordResult, DictationSession, ValidationState } from '@/lib/types';
+import { DictationList, WordResult, DictationSession, ValidationState } from '@/lib/types';
 import { useSpeech } from '@/hooks/useSpeech';
 import { saveSession } from '@/lib/storage';
 import { supabase } from '@/integrations/supabase/client';
@@ -17,98 +17,180 @@ function generateId() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-interface PhraseError {
-  wrong: string;
-  correct: string;
-  type: string;
+/** Normalise un texte pour comparaison : minuscules, sans ponctuation, espaces simples. */
+function normalize(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // retire accents pour comparaison souple
+    .replace(/[.,!?;:'"«»()\-–—]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-interface TargetWordStatus {
-  word: string;
-  found: boolean;
-  correct: boolean;
+/** Tokenize en gardant les mots et leur version normalisée */
+function tokenize(text: string): { raw: string; norm: string }[] {
+  return text
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(raw => ({
+      raw,
+      norm: raw
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[.,!?;:'"«»()\-–—]+/g, ''),
+    }));
 }
 
-interface CheckResult {
-  correctedPhrase: string;
-  errors: PhraseError[];
-  targetWordsStatus: TargetWordStatus[];
+interface WordDiff {
+  expected: string;
+  got: string;
+  ok: boolean;
 }
 
-/** Highlight errors in the sentence */
-function HighlightedSentence({ sentence, errors, showCorrections }: { sentence: string; errors: PhraseError[]; showCorrections: boolean }) {
-  if (errors.length === 0) {
-    return <p className="text-sm font-body leading-relaxed text-foreground">{sentence}</p>;
+/** Compare mot à mot (tolère accents, casse, ponctuation). */
+function diffTexts(expected: string, got: string): { diffs: WordDiff[]; correctCount: number; total: number; allCorrect: boolean } {
+  const exp = tokenize(expected);
+  const g = tokenize(got);
+  const max = Math.max(exp.length, g.length);
+  const diffs: WordDiff[] = [];
+  let correctCount = 0;
+  for (let i = 0; i < max; i++) {
+    const e = exp[i];
+    const gi = g[i];
+    const ok = !!(e && gi && e.norm === gi.norm);
+    if (ok) correctCount++;
+    diffs.push({
+      expected: e?.raw || '',
+      got: gi?.raw || '',
+      ok,
+    });
   }
-
-  // Build a highlighted version by replacing wrong words
-  let result = sentence;
-  const parts: { text: string; isError: boolean; correct?: string }[] = [];
-
-  // Simple approach: split into words, match against errors
-  const words = sentence.split(/(\s+)/); // keep whitespace
-
-  return (
-    <p className="text-sm font-body leading-relaxed">
-      {words.map((segment, i) => {
-        if (/^\s+$/.test(segment)) {
-          return <span key={i}>{segment}</span>;
-        }
-        // Strip punctuation for matching
-        const clean = segment.toLowerCase().replace(/[.,!?;:'"()]+/g, '');
-        const error = errors.find(e => e.wrong.toLowerCase() === clean);
-        if (error) {
-          return (
-            <span key={i} className="text-destructive font-bold underline" title={showCorrections ? `→ ${error.correct} (${error.type})` : undefined}>
-              {segment}
-              {showCorrections && (
-                <span className="text-success font-normal no-underline ml-1">({error.correct})</span>
-              )}
-            </span>
-          );
-        }
-        return <span key={i} className="text-foreground">{segment}</span>;
-      })}
-    </p>
-  );
-}
-
-async function checkPhrase(phrase: string, targetWords: string[]): Promise<CheckResult> {
-  const { data, error } = await supabase.functions.invoke('check-phrase', {
-    body: { phrase, targetWords },
-  });
-
-  if (error) {
-    throw new Error(error.message || 'Erreur lors de la vérification');
-  }
-
-  return data as CheckResult;
+  return { diffs, correctCount, total: exp.length, allCorrect: correctCount === exp.length && g.length === exp.length };
 }
 
 export default function DictationLevel2({ list, onFinish, onBack }: Props) {
   const { speak } = useSpeech();
-  const [remainingWords, setRemainingWords] = useState<DictationWord[]>(() =>
-    list.words.map(w => ({
-      ...w,
-      wordType: w.wordType || (w.isVerb ? 'verbe' : 'autre'),
-      isVerb: w.isVerb ?? false,
-    }))
-  );
+  const [passages, setPassages] = useState<string[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [currentIdx, setCurrentIdx] = useState(0);
   const [userInput, setUserInput] = useState('');
   const [state, setState] = useState<ValidationState>('pending');
-  const [results, setResults] = useState<WordResult[]>([]);
   const [firstAttempt, setFirstAttempt] = useState('');
-  const [isFinished, setIsFinished] = useState(false);
-  const [roundNumber, setRoundNumber] = useState(1);
-  const [isChecking, setIsChecking] = useState(false);
-  const [lastCheckResult, setLastCheckResult] = useState<CheckResult | null>(null);
-  const totalWords = list.words.length;
+  const [lastDiff, setLastDiff] = useState<ReturnType<typeof diffTexts> | null>(null);
+  const [results, setResults] = useState<WordResult[]>([]);
+  const spokenRef = useRef(false);
 
-  const handleSpeakWord = useCallback((text: string) => {
-    speak(text);
-  }, [speak]);
+  // Charger les passages depuis l'IA au montage
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke('generate-dictation-passages', {
+          body: { words: list.words.map(w => w.text) },
+        });
+        if (cancelled) return;
+        if (error) throw new Error(error.message);
+        const p: string[] = data?.passages || [];
+        if (p.length === 0) throw new Error('Aucun passage généré');
+        setPassages(p);
+      } catch (e) {
+        console.error('Erreur génération passages:', e);
+        if (!cancelled) setLoadError(e instanceof Error ? e.message : 'Erreur inconnue');
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [list.id]);
 
-  // Global Enter key for final state
+  const currentPassage = passages?.[currentIdx] || '';
+
+  const handleSpeak = useCallback(() => {
+    if (!currentPassage) return;
+    speak(currentPassage, 0.8);
+  }, [currentPassage, speak]);
+
+  // Lecture automatique du passage dès qu'il est prêt
+  useEffect(() => {
+    if (passages && currentPassage && state === 'pending') {
+      if (!spokenRef.current) {
+        spokenRef.current = true;
+        handleSpeak();
+      }
+    }
+  }, [passages, currentPassage, state, handleSpeak]);
+
+  const handleFirstValidation = () => {
+    if (!userInput.trim() || !currentPassage) return;
+    setFirstAttempt(userInput);
+    const diff = diffTexts(currentPassage, userInput);
+    setLastDiff(diff);
+
+    if (diff.allCorrect) {
+      // Parfait du premier coup → 1pt
+      setResults(prev => [...prev, {
+        wordId: `p${currentIdx}`,
+        word: `Passage ${currentIdx + 1}`,
+        expected: currentPassage,
+        firstAttempt: userInput,
+        score: 1,
+        state: 'final',
+      }]);
+      setState('final');
+    } else {
+      setState('correcting');
+    }
+  };
+
+  const handleSecondValidation = () => {
+    if (!userInput.trim() || !currentPassage) return;
+    const diff = diffTexts(currentPassage, userInput);
+    setLastDiff(diff);
+
+    const score = diff.allCorrect ? 0.5 : 0;
+    setResults(prev => [...prev, {
+      wordId: `p${currentIdx}`,
+      word: `Passage ${currentIdx + 1}`,
+      expected: currentPassage,
+      firstAttempt,
+      secondAttempt: userInput,
+      score,
+      state: 'final',
+    }]);
+    setState('final');
+  };
+
+  const handleNext = () => {
+    if (!passages) return;
+    if (currentIdx + 1 >= passages.length) {
+      // Fin
+      const totalScore = results.reduce((s, r) => s + r.score, 0);
+      const maxScore = results.length || 1;
+      const session: DictationSession = {
+        id: generateId(),
+        date: new Date().toISOString(),
+        level: 2,
+        listId: list.id,
+        listName: list.name,
+        results,
+        totalScore,
+        maxScore,
+        percentage: Math.round((totalScore / maxScore) * 100),
+      };
+      saveSession(session);
+      onFinish(session);
+      return;
+    }
+    setCurrentIdx(prev => prev + 1);
+    setUserInput('');
+    setFirstAttempt('');
+    setLastDiff(null);
+    setState('pending');
+    spokenRef.current = false;
+  };
+
+  // Enter global en état final
   useEffect(() => {
     if (state !== 'final') return;
     let ready = false;
@@ -122,162 +204,31 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [state, remainingWords, results]);
+  }, [state, currentIdx, results, passages]);
 
-  const doCheck = async (input: string): Promise<CheckResult | null> => {
-    setIsChecking(true);
-    try {
-      const targetWordTexts = remainingWords.map(w => w.text);
-      const result = await checkPhrase(input, targetWordTexts);
-      setLastCheckResult(result);
-      return result;
-    } catch (e) {
-      console.error('Check error:', e);
-      toast.error("Erreur lors de la vérification. Réessaie.");
-      return null;
-    } finally {
-      setIsChecking(false);
-    }
-  };
-
-  const handleFirstValidation = async () => {
-    if (!userInput.trim() || isChecking) return;
-    setFirstAttempt(userInput);
-
-    const result = await doCheck(userInput);
-    if (!result) return;
-
-    const usedWords = result.targetWordsStatus.filter(t => t.found);
-
-    if (usedWords.length === 0) {
-      setState('correcting');
-      toast.warning("Utilise au moins un mot de la liste !");
-      return;
-    }
-
-    if (result.errors.length === 0) {
-      // Perfect! All words correct
-      const newResults = usedWords
-        .filter(t => t.correct)
-        .map(t => {
-          const word = remainingWords.find(w => w.text.toLowerCase() === t.word.toLowerCase());
-          return {
-            wordId: word?.id || '',
-            word: t.word,
-            expected: t.word,
-            firstAttempt: userInput,
-            score: 1,
-            state: 'final' as ValidationState,
-          };
-        });
-      setResults(prev => [...prev, ...newResults]);
-      setState('final');
-    } else {
-      // Errors found - show them but don't give corrections
-      setState('correcting');
-    }
-  };
-
-  const handleSecondValidation = async () => {
-    if (!userInput.trim() || isChecking) return;
-
-    const result = await doCheck(userInput);
-    if (!result) return;
-
-    const usedWords = result.targetWordsStatus.filter(t => t.found);
-    const newResults: WordResult[] = [];
-
-    for (const t of usedWords) {
-      const word = remainingWords.find(w => w.text.toLowerCase() === t.word.toLowerCase());
-      if (!word) continue;
-
-      if (t.correct && result.errors.length === 0) {
-        // Corrected on second attempt
-        newResults.push({
-          wordId: word.id,
-          word: t.word,
-          expected: t.word,
-          firstAttempt,
-          secondAttempt: userInput,
-          score: 0.5,
-          state: 'final',
-        });
-      } else if (t.correct) {
-        // Word itself is correct but phrase has other errors
-        newResults.push({
-          wordId: word.id,
-          word: t.word,
-          expected: t.word,
-          firstAttempt,
-          secondAttempt: userInput,
-          score: result.errors.length === 0 ? 0.5 : 0.5,
-          state: 'final',
-        });
-      } else {
-        // Word still misspelled
-        newResults.push({
-          wordId: word.id,
-          word: t.word,
-          expected: t.word,
-          firstAttempt,
-          secondAttempt: userInput,
-          score: 0,
-          state: 'final',
-        });
-      }
-    }
-
-    setResults(prev => [...prev, ...newResults]);
-    setState('final');
-  };
-
-  const handleNext = () => {
-    // Remove words that were found and correctly used
-    const correctWordTexts = new Set(
-      (lastCheckResult?.targetWordsStatus || [])
-        .filter(t => t.found && t.correct)
-        .map(t => t.word.toLowerCase())
+  // États de chargement / erreur
+  if (loadError) {
+    return (
+      <div className="max-w-2xl mx-auto text-center py-12 space-y-4">
+        <p className="text-5xl">😕</p>
+        <p className="text-foreground font-body">Impossible de générer la dictée : {loadError}</p>
+        <button onClick={onBack} className="btn-playful bg-primary text-primary-foreground">
+          <Home size={18} /> Retour
+        </button>
+      </div>
     );
+  }
 
-    const newRemaining = remainingWords.filter(w => !correctWordTexts.has(w.text.toLowerCase()));
+  if (!passages) {
+    return (
+      <div className="max-w-2xl mx-auto text-center py-12 space-y-4">
+        <Loader2 size={48} className="animate-spin text-primary mx-auto" />
+        <p className="text-muted-foreground font-body">✨ L'IA prépare ta dictée...</p>
+      </div>
+    );
+  }
 
-    if (newRemaining.length === 0) {
-      finishExercise();
-      return;
-    }
-
-    setRemainingWords(newRemaining);
-    setUserInput('');
-    setState('pending');
-    setFirstAttempt('');
-    setLastCheckResult(null);
-    setRoundNumber(prev => prev + 1);
-  };
-
-  const finishExercise = () => {
-    const allResults = [...results];
-    const totalScore = allResults.reduce((sum, r) => sum + r.score, 0);
-    const maxScore = allResults.length;
-    const session: DictationSession = {
-      id: generateId(),
-      date: new Date().toISOString(),
-      level: 2,
-      listId: list.id,
-      listName: list.name,
-      results: allResults,
-      totalScore,
-      maxScore: maxScore || 1,
-      percentage: Math.round((totalScore / (maxScore || 1)) * 100),
-    };
-    saveSession(session);
-    onFinish(session);
-    setIsFinished(true);
-  };
-
-  if (isFinished) return null;
-
-  const progress = ((totalWords - remainingWords.length) / totalWords) * 100;
-  const hasErrors = lastCheckResult && lastCheckResult.errors.length > 0;
+  const progress = ((currentIdx + (state === 'final' ? 1 : 0)) / passages.length) * 100;
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -287,11 +238,11 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
           <Home size={16} /> Retour
         </button>
         <div className="text-center">
-          <span className="text-sm text-muted-foreground font-body">📗 Niveau 2 — Phrases libres</span>
+          <span className="text-sm text-muted-foreground font-body">📗 Niveau 2 — Dictée IA</span>
           <h3 className="font-display text-lg text-foreground">{list.name}</h3>
         </div>
         <span className="text-sm font-body text-muted-foreground">
-          Tour {roundNumber}
+          {currentIdx + 1} / {passages.length}
         </span>
       </div>
 
@@ -304,33 +255,28 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
         />
       </div>
 
-      {/* Word pool */}
+      {/* Bouton lecture */}
       <motion.div
-        key={`pool-${roundNumber}`}
+        key={`listen-${currentIdx}`}
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="card-playful"
+        className="card-playful flex flex-col items-center gap-4 py-8"
       >
-        <p className="text-sm text-muted-foreground font-body mb-3">
-          📝 Écris une ou plusieurs phrases avec le plus de mots possible :
+        <p className="text-sm text-muted-foreground font-body">
+          🎧 Écoute le passage et écris-le
         </p>
-        <div className="flex flex-wrap gap-2">
-          {remainingWords.map(word => (
-            <button
-              key={word.id}
-              onClick={() => handleSpeakWord(word.text)}
-              className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors cursor-pointer"
-              title="Écouter le mot"
-            >
-              <Volume2 size={18} />
-            </button>
-          ))}
-        </div>
+        <button
+          onClick={handleSpeak}
+          className="btn-playful bg-primary text-primary-foreground text-lg px-8 py-4"
+          title="Réécouter le passage"
+        >
+          <Volume2 size={24} /> Réécouter
+        </button>
       </motion.div>
 
-      {/* Input area */}
+      {/* Zone de saisie */}
       <motion.div
-        key={`input-${roundNumber}`}
+        key={`input-${currentIdx}`}
         initial={{ opacity: 0, x: 30 }}
         animate={{ opacity: 1, x: 0 }}
         className="card-playful space-y-4"
@@ -338,22 +284,22 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
         <textarea
           value={userInput}
           onChange={e => setUserInput(e.target.value)}
-          placeholder="Écris ta phrase ici..."
+          placeholder="Écris ici ce que tu entends..."
           spellCheck={false}
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
-          rows={3}
+          rows={4}
           className={`w-full rounded-xl px-5 py-4 text-lg font-body focus:outline-none focus:ring-3 transition-colors resize-none ${
             state === 'final'
-              ? !hasErrors
-                ? 'bg-success/10 ring-2 ring-success text-success'
+              ? lastDiff?.allCorrect
+                ? 'bg-success/10 ring-2 ring-success text-foreground'
                 : 'bg-destructive/10 ring-2 ring-destructive text-foreground'
               : state === 'correcting'
                 ? 'bg-warning/10 ring-2 ring-warning text-foreground'
                 : 'bg-muted text-foreground focus:ring-primary'
           }`}
-          disabled={state === 'final' || isChecking}
+          disabled={state === 'final'}
           onKeyDown={e => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
@@ -366,59 +312,50 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
 
         {/* Feedback */}
         <AnimatePresence>
-          {state === 'correcting' && lastCheckResult && (
+          {state === 'correcting' && lastDiff && (
             <motion.div
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
               className="rounded-xl bg-warning/10 border border-warning/30 p-4 space-y-2"
             >
-              {lastCheckResult.targetWordsStatus.filter(t => t.found).length === 0 ? (
-                <p className="text-sm font-semibold text-warning-foreground">⚠️ Utilise au moins un mot de la liste ! Réessaie.</p>
-              ) : lastCheckResult.errors.length > 0 ? (
-                <>
-                  <p className="text-sm font-semibold text-warning-foreground">
-                    ⚠️ Il y a {lastCheckResult.errors.length} erreur{lastCheckResult.errors.length > 1 ? 's' : ''} dans ta phrase. Corrige et réessaie.
-                  </p>
-                  <HighlightedSentence sentence={userInput} errors={lastCheckResult.errors} showCorrections={false} />
-                </>
-              ) : (
-                <p className="text-sm font-semibold text-warning-foreground">⚠️ Pas tout à fait ! Corrige et réessaie.</p>
-              )}
+              <p className="text-sm font-semibold text-warning-foreground">
+                ⚠️ {lastDiff.correctCount}/{lastDiff.total} mots corrects. Réécoute et corrige !
+              </p>
+              <p className="text-sm font-body leading-relaxed">
+                {lastDiff.diffs.map((d, i) => (
+                  <span key={i}>
+                    <span className={d.ok ? 'text-success' : 'text-destructive font-bold underline'}>
+                      {d.got || '_____'}
+                    </span>
+                    {i < lastDiff.diffs.length - 1 && ' '}
+                  </span>
+                ))}
+              </p>
             </motion.div>
           )}
 
-          {state === 'final' && lastCheckResult && (
+          {state === 'final' && lastDiff && (
             <motion.div
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
               className={`rounded-xl p-4 border ${
-                !hasErrors
+                lastDiff.allCorrect
                   ? 'bg-success/10 border-success/30'
                   : 'bg-destructive/10 border-destructive/30'
               }`}
             >
-              {!hasErrors ? (
-                <div>
-                  <p className="text-success font-bold text-lg">
-                    🎉 {lastCheckResult.targetWordsStatus.filter(t => t.found && t.correct).length > 1
-                      ? `${lastCheckResult.targetWordsStatus.filter(t => t.found && t.correct).length} mots utilisés correctement !`
-                      : 'Bravo ! Mot bien utilisé !'
-                    }
-                  </p>
-                </div>
+              {lastDiff.allCorrect ? (
+                <p className="text-success font-bold text-lg">🎉 Bravo ! Parfait !</p>
               ) : (
                 <div className="space-y-2">
-                  <p className="text-destructive font-bold mb-2">❌ Certaines erreurs restent :</p>
-                  <HighlightedSentence sentence={userInput} errors={lastCheckResult.errors} showCorrections={true} />
-                  <div className="mt-2">
-                    <p className="text-xs text-muted-foreground">Correction : {lastCheckResult.correctedPhrase}</p>
-                  </div>
+                  <p className="text-destructive font-bold mb-2">❌ Corrige avec la bonne version :</p>
+                  <p className="text-sm text-muted-foreground">Correction :</p>
+                  <p className="text-sm font-body leading-relaxed text-foreground bg-card rounded-lg p-3">
+                    {currentPassage}
+                  </p>
                 </div>
               )}
-              <p className="text-xs text-muted-foreground mt-2">
-                Mots restants : {remainingWords.length - (lastCheckResult.targetWordsStatus.filter(t => t.found && t.correct).length)}
-              </p>
             </motion.div>
           )}
         </AnimatePresence>
@@ -426,18 +363,18 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
         {/* Action buttons */}
         <div className="flex justify-center gap-3">
           {state === 'pending' && (
-            <button onClick={handleFirstValidation} disabled={isChecking} className="btn-playful bg-primary text-primary-foreground">
-              {isChecking ? <><Loader2 size={20} className="animate-spin" /> Vérification...</> : <><Check size={20} /> Valider</>}
+            <button onClick={handleFirstValidation} className="btn-playful bg-primary text-primary-foreground">
+              <Check size={20} /> Valider
             </button>
           )}
           {state === 'correcting' && (
-            <button onClick={handleSecondValidation} disabled={isChecking} className="btn-playful bg-accent text-accent-foreground">
-              {isChecking ? <><Loader2 size={20} className="animate-spin" /> Vérification...</> : <><RotateCcw size={20} /> Revalider</>}
+            <button onClick={handleSecondValidation} className="btn-playful bg-accent text-accent-foreground">
+              <RotateCcw size={20} /> Revalider
             </button>
           )}
           {state === 'final' && (
             <button onClick={handleNext} className="btn-playful bg-primary text-primary-foreground">
-              {remainingWords.length - (lastCheckResult?.targetWordsStatus.filter(t => t.found && t.correct).length || 0) <= 0
+              {currentIdx + 1 >= passages.length
                 ? '🏁 Terminer'
                 : <><ArrowRight size={20} /> Suivant</>
               }
@@ -446,7 +383,7 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
         </div>
       </motion.div>
 
-      {/* Running score */}
+      {/* Score en cours */}
       {results.length > 0 && (
         <div className="text-center text-sm text-muted-foreground font-body">
           Score en cours : {results.reduce((s, r) => s + r.score, 0)}/{results.length}
