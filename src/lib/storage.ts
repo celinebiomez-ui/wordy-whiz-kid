@@ -106,8 +106,13 @@ export async function saveSession(session: DictationSession): Promise<void> {
     throw error;
   }
 
-  // Envoi Telegram
-  await supabase.functions.invoke('send-telegram-result', {
-    body: { session },
-  });
+// Envoi Telegram
+  try {
+    const { error: fnError } = await supabase.functions.invoke('send-telegram-result', {
+      body: { session },
+    });
+    if (fnError) console.error('Telegram error:', fnError);
+  } catch (e) {
+    console.error('Telegram catch:', e);
+  }
 }
