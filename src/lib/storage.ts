@@ -129,4 +129,3 @@ export async function saveSession(session: DictationSession): Promise<void> {
     console.error('Erreur sauvegarde externe:', e);
   }
 }
-}
