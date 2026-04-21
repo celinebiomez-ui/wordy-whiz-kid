@@ -106,13 +106,27 @@ export async function saveSession(session: DictationSession): Promise<void> {
     throw error;
   }
 
-// Envoi Telegram
+  // Sauvegarde externe + Telegram
   try {
-    const { error: fnError } = await supabase.functions.invoke('send-telegram-result', {
-      body: { session },
+    await fetch('https://xllwlwtuwvxlkconqddd.supabase.co/rest/v1/resultats', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': 'sb_publishable_wtOSChqoLLZ_hLSfZMzK4w_hIhsTD01',
+        'Authorization': 'Bearer sb_publishable_wtOSChqoLLZ_hLSfZMzK4w_hIhsTD01',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({
+        type: 'dictée',
+        date: session.date,
+        score: session.totalScore,
+        max_score: session.maxScore,
+        percentage: session.percentage,
+        details: session.results,
+      }),
     });
-    if (fnError) console.error('Telegram error:', fnError);
   } catch (e) {
-    console.error('Telegram catch:', e);
+    console.error('Erreur sauvegarde externe:', e);
   }
+}
 }
