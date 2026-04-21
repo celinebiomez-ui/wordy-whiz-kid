@@ -133,7 +133,7 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
     setShowCorrection(!isCorrect);
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (currentIndex + 1 >= totalItems) {
       const allResults = [...results];
       const totalScore = allResults.reduce((sum, r) => sum + r.score, 0);
@@ -149,7 +149,7 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
         maxScore,
         percentage: Math.round((totalScore / maxScore) * 100),
       };
-      saveSession(session);
+      await saveSession(session);
       onFinish(session);
       setIsFinished(true);
       return;
