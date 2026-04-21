@@ -107,6 +107,7 @@ export async function saveSession(session: DictationSession): Promise<void> {
   }
 
   // Sauvegarde externe + Telegram
+  console.log('Tentative sauvegarde externe...');
   try {
     await fetch('https://xllwlwtuwvxlkconqddd.supabase.co/rest/v1/resultats', {
       method: 'POST',
