@@ -128,12 +128,19 @@ export async function saveSession(session: DictationSession): Promise<void> {
   try {
     const emoji = session.percentage >= 80 ? '🌟' : session.percentage >= 50 ? '👍' : '💪';
     const niveau = session.level === 1 ? 'Niveau 1 — Mots' : 'Niveau 2 — Phrases';
+    
+    const motsFaux = session.results
+      .filter((r: any) => !r.correct && r.word)
+      .map((r: any) => `❌ ${r.word}`)
+      .join('\n');
+
     const message = [
       `${emoji} <b>Nouvelle dictée terminée !</b>`,
       `📚 Liste : <b>${session.listName}</b>`,
       `📊 Niveau : ${niveau}`,
       `🎯 Score : <b>${session.totalScore}/${session.maxScore}</b> (${session.percentage}%)`,
       `📅 ${new Date(session.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}`,
+      motsFaux ? `\n✏️ <b>Mots à retravailler :</b>\n${motsFaux}` : '\n✅ Aucune erreur !',
     ].join('\n');
 
     const res = await fetch(`${SUPABASE_URL}/functions/v1/notify-telegram`, {
