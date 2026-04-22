@@ -65,16 +65,16 @@ export default function ResultsHistory() {
     <div className="space-y-6">
       <h2 className="text-2xl font-display text-foreground">📊 Mes résultats</h2>
 
-      <div className="overflow-x-auto">
-        <table className="w-full">
+      <div className="w-full">
+        <table className="w-full table-fixed">
           <thead>
             <tr className="border-b border-border">
-              <th className="text-left py-3 px-4 font-display text-sm text-muted-foreground">📅 Date</th>
-              <th className="text-left py-3 px-4 font-display text-sm text-muted-foreground">📘 Niveau</th>
-              <th className="text-left py-3 px-4 font-display text-sm text-muted-foreground">📚 Liste</th>
-              <th className="text-left py-3 px-4 font-display text-sm text-muted-foreground">🧮 Score</th>
-              <th className="text-left py-3 px-4 font-display text-sm text-muted-foreground">📈 %</th>
-              <th className="py-3 px-4" />
+              <th className="text-left py-3 px-4 font-display text-sm text-muted-foreground w-[22%]">📅 Date</th>
+              <th className="text-left py-3 px-4 font-display text-sm text-muted-foreground w-[20%]">📘 Niveau</th>
+              <th className="text-left py-3 px-4 font-display text-sm text-muted-foreground w-[20%]">📚 Liste</th>
+              <th className="text-left py-3 px-4 font-display text-sm text-muted-foreground w-[16%]">🧮 Score</th>
+              <th className="text-left py-3 px-4 font-display text-sm text-muted-foreground w-[16%]">📈 %</th>
+              <th className="py-3 px-4 w-[6%]" />
             </tr>
           </thead>
           <tbody>
@@ -135,3 +135,4 @@ export default function ResultsHistory() {
     </div>
   );
 }
+
