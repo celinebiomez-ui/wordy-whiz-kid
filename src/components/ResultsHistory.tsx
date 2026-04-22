@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { DictationSession } from '@/lib/types';
 import { getSessions } from '@/lib/storage';
 import { supabase } from '@/integrations/supabase/client';
@@ -8,12 +8,13 @@ export default function ResultsHistory() {
   const [sessions, setSessions] = useState<DictationSession[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const load = async () => {
+    const data = await getSessions();
+    setSessions(data.reverse());
+    setLoading(false);
+  };
+
   useEffect(() => {
-    const load = async () => {
-      const data = await getSessions();
-      setSessions(data.reverse());
-      setLoading(false);
-    };
     load();
 
     const channel = supabase
@@ -29,11 +30,18 @@ export default function ResultsHistory() {
     const pwd = prompt('🔐 Mot de passe :');
     if (pwd !== 'BRAVO') return;
     if (!confirm(`Supprimer la dictée du ${new Date(session.date).toLocaleDateString('fr-FR')} ?`)) return;
+
     const { error } = await supabase
       .from('dictation_sessions')
       .delete()
       .eq('id', session.id);
-    if (error) console.error('Erreur suppression:', error);
+
+    if (error) {
+      console.error('Erreur suppression:', error);
+    } else {
+      // ✅ Mise à jour immédiate du state local sans rechargement
+      setSessions(prev => prev.filter(s => s.id !== session.id));
+    }
   };
 
   if (loading) {
@@ -70,53 +78,57 @@ export default function ResultsHistory() {
             </tr>
           </thead>
           <tbody>
-            {sessions.map((session, i) => (
-              <motion.tr
-                key={session.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className="border-b border-border/50 hover:bg-muted/30 transition-colors"
-              >
-                <td className="py-3 px-4 font-body text-sm text-foreground">
-                  {new Date(session.date).toLocaleDateString('fr-FR')}
-                </td>
-                <td className="py-3 px-4">
-                  <span className={`inline-flex items-center rounded-lg px-2 py-1 text-xs font-bold ${
-                    session.level === 1
-                      ? 'bg-secondary/20 text-secondary'
-                      : 'bg-accent/20 text-accent'
-                  }`}>
-                    Niveau {session.level}
-                  </span>
-                </td>
-                <td className="py-3 px-4 font-body text-sm text-foreground">{session.listName}</td>
-                <td className="py-3 px-4 font-body text-sm text-foreground">
-                  {session.totalScore}/{session.maxScore}
-                </td>
-                <td className="py-3 px-4">
-                  <span className={`font-bold text-sm ${
-                    session.percentage >= 80
-                      ? 'text-success'
-                      : session.percentage >= 50
-                        ? 'text-warning-foreground'
-                        : 'text-destructive'
-                  }`}>
-                    {session.percentage}%
-                    {session.percentage >= 80 && ' 🌟'}
-                    {session.percentage === 100 && ' 🏆'}
-                  </span>
-                </td>
-                <td className="py-3 px-4">
-                  <button
-                    onClick={() => handleDelete(session)}
-                    className="text-muted-foreground hover:text-destructive transition-colors"
-                  >
-                    ✕
-                  </button>
-                </td>
-              </motion.tr>
-            ))}
+            <AnimatePresence>
+              {sessions.map((session, i) => (
+                <motion.tr
+                  key={session.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ delay: i * 0.05 }}
+                  className="border-b border-border/50 hover:bg-muted/30 transition-colors"
+                >
+                  <td className="py-3 px-4 font-body text-sm text-foreground">
+                    {new Date(session.date).toLocaleDateString('fr-FR')}
+                  </td>
+                  <td className="py-3 px-4">
+                    <span className={`inline-flex items-center rounded-lg px-2 py-1 text-xs font-bold ${
+                      session.level === 1
+                        ? 'bg-secondary/20 text-secondary'
+                        : 'bg-accent/20 text-accent'
+                    }`}>
+                      Niveau {session.level}
+                    </span>
+                  </td>
+                  <td className="py-3 px-4 font-body text-sm text-foreground">{session.listName}</td>
+                  <td className="py-3 px-4 font-body text-sm text-foreground">
+                    {session.totalScore}/{session.maxScore}
+                  </td>
+                  <td className="py-3 px-4">
+                    <span className={`font-bold text-sm ${
+                      session.percentage >= 80
+                        ? 'text-success'
+                        : session.percentage >= 50
+                          ? 'text-warning-foreground'
+                          : 'text-destructive'
+                    }`}>
+                      {session.percentage}%
+                      {session.percentage >= 80 && ' 🌟'}
+                      {session.percentage === 100 && ' 🏆'}
+                    </span>
+                  </td>
+                  <td className="py-3 px-4">
+                    <button
+                      onClick={() => handleDelete(session)}
+                      title="Supprimer cette dictée"
+                      className="text-muted-foreground hover:text-destructive transition-colors text-lg leading-none"
+                    >
+                      ✕
+                    </button>
+                  </td>
+                </motion.tr>
+              ))}
+            </AnimatePresence>
           </tbody>
         </table>
       </div>
