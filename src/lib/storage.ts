@@ -138,9 +138,20 @@ export async function saveSession(session: DictationSession): Promise<void> {
         .map((r: any) => r.score === 0 ? `❌ ${r.word}` : `⚠️ ${r.word}`)
         .join('\n');
     } else {
-      // Niveau 2 : mots de la liste mal orthographiés au premier essai
-      const listWordResults = session.results[0]?.listWordResults || [];
-      motsFaux = listWordResults
+      // Niveau 2 : un mot est correct seulement s'il est correct dans tous les passages
+      const allWordResults: { word: string; correct: boolean }[] = [];
+      session.results.forEach((r: any) => {
+        (r.listWordResults || []).forEach((lwr: any) => {
+          const existing = allWordResults.find(x => x.word === lwr.word);
+          if (existing) {
+            // Correct seulement si correct dans tous les passages
+            existing.correct = existing.correct && lwr.correct;
+          } else {
+            allWordResults.push({ word: lwr.word, correct: lwr.correct });
+          }
+        });
+      });
+      motsFaux = allWordResults
         .filter((r: any) => !r.correct)
         .map((r: any) => `❌ ${r.word}`)
         .join('\n');
