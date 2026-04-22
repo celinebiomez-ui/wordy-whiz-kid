@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Volume2, Check, ArrowRight, RotateCcw, Home } from 'lucide-react';
-import { DictationList, DictationWord, WordResult, DictationSession, ValidationState } from '@/lib/types';
+import { DictationList, WordResult, DictationSession, ValidationState } from '@/lib/types';
 import { useSpeech } from '@/hooks/useSpeech';
 import { saveSession } from '@/lib/storage';
 import { generatePhrases, shuffle, GeneratedPhrase } from '@/lib/phraseGenerator';
@@ -32,38 +32,52 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
   const [firstAttempt, setFirstAttempt] = useState('');
   const [isFinished, setIsFinished] = useState(false);
 
+  // --- AJOUT : prévisualisation niveau 1 ---
+  const [showPreview, setShowPreview] = useState(level === 1);
+
+  // --- AJOUT : compte à rebours ---
+  const [countdown, setCountdown] = useState<number | null>(null);
+
   // Shuffle words for level 1, generate phrases for level 2
-  const [shuffledWords] = useState(() => shuffle(list.words.map(w => ({
-    ...w,
-    wordType: w.wordType || (w.isVerb ? 'verbe' : 'autre'),
-    isVerb: w.isVerb ?? false,
-  }))));
-  const [phrases] = useState<GeneratedPhrase[]>(() => {
-    try {
-      return level === 2 ? generatePhrases(list.words.map(w => ({
+  const [shuffledWords] = useState(() =>
+    shuffle(
+      list.words.map(w => ({
         ...w,
         wordType: w.wordType || (w.isVerb ? 'verbe' : 'autre'),
         isVerb: w.isVerb ?? false,
-      }))) : [];
+      }))
+    )
+  );
+
+  const [phrases] = useState<GeneratedPhrase[]>(() => {
+    try {
+      return level === 2
+        ? generatePhrases(
+            list.words.map(w => ({
+              ...w,
+              wordType: w.wordType || (w.isVerb ? 'verbe' : 'autre'),
+              isVerb: w.isVerb ?? false,
+            }))
+          )
+        : [];
     } catch (e) {
       console.error('Error generating phrases:', e);
       return [];
     }
   });
 
-  // For level 1: use shuffled words. For level 2: use phrases.
   const totalItems = level === 1 ? shuffledWords.length : phrases.length;
 
   const currentWord = level === 1 ? shuffledWords[currentIndex] : null;
   const currentPhrase = level === 2 ? phrases[currentIndex] : null;
 
-  const expectedText = level === 2
-    ? currentPhrase?.phrase || ''
-    : currentWord?.text || '';
+  const expectedText =
+    level === 2 ? currentPhrase?.phrase || '' : currentWord?.text || '';
 
-  const displayText = level === 2
-    ? currentPhrase?.phrase || ''
-    : currentWord?.isVerb && currentWord?.tense
+  const displayText =
+    level === 2
+      ? currentPhrase?.phrase || ''
+      : currentWord?.isVerb && currentWord?.tense
       ? `${currentWord.text} (${currentWord.tense})`
       : currentWord?.text || '';
 
@@ -71,18 +85,38 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
     if (expectedText) speak(expectedText);
   }, [expectedText, speak]);
 
-  // Auto-speak on new word — no delay
+  // --- MODIFIÉ : empêcher la dictée de parler avant le clic ---
   useEffect(() => {
+    if (showPreview || countdown !== null) return;
     if (state === 'pending' && expectedText) {
       handleSpeak();
     }
-  }, [currentIndex, state]);
+  }, [currentIndex, state, showPreview, countdown]);
 
-  // Global Enter key handler for when input is disabled (final state)
+  // --- AJOUT : gestion du compte à rebours ---
+  useEffect(() => {
+    if (countdown === null) return;
+
+    if (countdown === 0) {
+      setCountdown(null);
+      setShowPreview(false); // démarre la dictée
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setCountdown(prev => (prev !== null ? prev - 1 : null));
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [countdown]);
+
+  // Global Enter key handler
   useEffect(() => {
     if (state !== 'final') return;
     let ready = false;
-    const onKeyUp = () => { ready = true; };
+    const onKeyUp = () => {
+      ready = true;
+    };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Enter' && ready) handleNext();
     };
@@ -169,8 +203,13 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
     return (
       <div className="max-w-2xl mx-auto text-center py-12 space-y-4">
         <p className="text-5xl">⚠️</p>
-        <p className="text-lg text-muted-foreground font-body">Cette liste ne contient pas assez de mots pour lancer l'exercice.</p>
-        <button onClick={onBack} className="btn-playful bg-primary text-primary-foreground">
+        <p className="text-lg text-muted-foreground font-body">
+          Cette liste ne contient pas assez de mots pour lancer l'exercice.
+        </p>
+        <button
+          onClick={onBack}
+          className="btn-playful bg-primary text-primary-foreground"
+        >
           <Home size={16} /> Retour aux listes
         </button>
       </div>
@@ -179,11 +218,58 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
 
   const progress = (currentIndex / totalItems) * 100;
 
+  // --- ÉCRAN DE PRÉVISUALISATION ---
+  if (showPreview && level === 1) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-6 py-8">
+        <button
+          onClick={onBack}
+          className="btn-playful bg-muted text-muted-foreground text-sm py-2 px-4"
+        >
+          <Home size={16} /> Retour
+        </button>
+
+        <h2 className="text-xl font-display text-center">📘 Mots du niveau 1</h2>
+
+        <ul className="bg-muted p-4 rounded-xl space-y-2">
+          {shuffledWords.map(w => (
+            <li key={w.id} className="text-lg font-body">
+              {w.text}
+            </li>
+          ))}
+        </ul>
+
+        <div className="text-center">
+          <button
+            onClick={() => setCountdown(3)}
+            className="btn-playful bg-primary text-primary-foreground px-6 py-3 text-lg"
+          >
+            🚀 Démarrer la dictée
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- ÉCRAN DU COMPTE À REBOURS ---
+  if (countdown !== null) {
+    return (
+      <div className="max-w-2xl mx-auto text-center py-20">
+        <p className="text-6xl font-display">{countdown}</p>
+        <p className="text-muted-foreground mt-4 text-lg">Prépare-toi…</p>
+      </div>
+    );
+  }
+
+  // --- INTERFACE NORMALE DE DICTÉE ---
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <button onClick={onBack} className="btn-playful bg-muted text-muted-foreground text-sm py-2 px-4">
+        <button
+          onClick={onBack}
+          className="btn-playful bg-muted text-muted-foreground text-sm py-2 px-4"
+        >
           <Home size={16} /> Retour
         </button>
         <div className="text-center">
@@ -243,11 +329,11 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
                 ? lastResult.score === 1
                   ? 'bg-success/10 ring-2 ring-success text-success'
                   : lastResult.score === 0.5
-                    ? 'bg-success/10 ring-2 ring-success text-success'
-                    : 'bg-destructive/10 ring-2 ring-destructive text-foreground'
+                  ? 'bg-success/10 ring-2 ring-success text-success'
+                  : 'bg-destructive/10 ring-2 ring-destructive text-foreground'
                 : state === 'correcting'
-                  ? 'bg-warning/10 ring-2 ring-warning text-foreground'
-                  : 'bg-muted text-foreground focus:ring-primary'
+                ? 'bg-warning/10 ring-2 ring-warning text-foreground'
+                : 'bg-muted text-foreground focus:ring-primary'
             }`}
             disabled={state === 'final'}
             onKeyDown={e => {
@@ -268,7 +354,9 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
                 exit={{ opacity: 0 }}
                 className="rounded-xl bg-warning/10 border border-warning/30 p-4"
               >
-                <p className="text-sm font-semibold text-warning-foreground">⚠️ Pas tout à fait ! Corrige et réessaie.</p>
+                <p className="text-sm font-semibold text-warning-foreground">
+                  ⚠️ Pas tout à fait ! Corrige et réessaie.
+                </p>
               </motion.div>
             )}
 
@@ -283,20 +371,38 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
                 }`}
               >
                 {lastResult.score === 1 && (
-                  <p className="text-success font-bold text-lg">🎉 Bravo ! Parfait du premier coup !</p>
+                  <p className="text-success font-bold text-lg">
+                    🎉 Bravo ! Parfait du premier coup !
+                  </p>
                 )}
                 {lastResult.score === 0.5 && (
-                  <p className="text-success font-bold">✅ Bien corrigé ! Continue comme ça !</p>
+                  <p className="text-success font-bold">
+                    ✅ Bien corrigé ! Continue comme ça !
+                  </p>
                 )}
                 {lastResult.score === 0 && (
                   <div>
-                    <p className="text-destructive font-bold mb-2">❌ Pas cette fois...</p>
-                    <p className="text-sm text-foreground mb-1">Réponse correcte :</p>
-                    <WordDiff expected={expectedText} attempt={lastResult.secondAttempt || lastResult.firstAttempt} />
+                    <p className="text-destructive font-bold mb-2">
+                      ❌ Pas cette fois...
+                    </p>
+                    <p className="text-sm text-foreground mb-1">
+                      Réponse correcte :
+                    </p>
+                    <WordDiff
+                      expected={expectedText}
+                      attempt={
+                        lastResult.secondAttempt || lastResult.firstAttempt
+                      }
+                    />
                   </div>
                 )}
                 <p className="text-xs text-muted-foreground mt-2">
-                  Score : {lastResult.score === 1 ? '⭐ 1 point' : lastResult.score === 0.5 ? '½ point' : '0 point'}
+                  Score :{' '}
+                  {lastResult.score === 1
+                    ? '⭐ 1 point'
+                    : lastResult.score === 0.5
+                    ? '½ point'
+                    : '0 point'}
                 </p>
               </motion.div>
             )}
@@ -306,18 +412,33 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
         {/* Action buttons */}
         <div className="flex justify-center gap-3">
           {state === 'pending' && (
-            <button onClick={handleFirstValidation} className="btn-playful bg-primary text-primary-foreground">
+            <button
+              onClick={handleFirstValidation}
+              className="btn-playful bg-primary text-primary-foreground"
+            >
               <Check size={20} /> Valider
             </button>
           )}
           {state === 'correcting' && (
-            <button onClick={handleSecondValidation} className="btn-playful bg-accent text-accent-foreground">
+            <button
+              onClick={handleSecondValidation}
+              className="btn-playful bg-accent text-accent-foreground"
+            >
               <RotateCcw size={20} /> Revalider
             </button>
           )}
           {state === 'final' && (
-            <button onClick={handleNext} className="btn-playful bg-primary text-primary-foreground">
-              {currentIndex + 1 >= totalItems ? '🏁 Terminer' : <><ArrowRight size={20} /> Suivant</>}
+            <button
+              onClick={handleNext}
+              className="btn-playful bg-primary text-primary-foreground"
+            >
+              {currentIndex + 1 >= totalItems
+                ? '🏁 Terminer'
+                : (
+                  <>
+                    <ArrowRight size={20} /> Suivant
+                  </>
+                )}
             </button>
           )}
         </div>
@@ -326,7 +447,8 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
       {/* Running score */}
       {results.length > 0 && (
         <div className="text-center text-sm text-muted-foreground font-body">
-          Score en cours : {results.reduce((s, r) => s + r.score, 0)}/{results.length}
+          Score en cours :{' '}
+          {results.reduce((s, r) => s + r.score, 0)}/{results.length}
         </div>
       )}
     </div>
