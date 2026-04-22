@@ -130,8 +130,8 @@ export async function saveSession(session: DictationSession): Promise<void> {
     const niveau = session.level === 1 ? 'Niveau 1 — Mots' : 'Niveau 2 — Phrases';
     
     const motsFaux = session.results
-      .filter((r: any) => !r.correct && r.word)
-      .map((r: any) => `❌ ${r.word}`)
+      .filter((r: any) => r.score < 1)
+      .map((r: any) => r.score === 0 ? `❌ ${r.word}` : `⚠️ ${r.word}`)
       .join('\n');
 
     const message = [
