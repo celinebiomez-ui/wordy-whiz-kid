@@ -137,37 +137,24 @@ export async function saveSession(session: DictationSession): Promise<void> {
         .map((r: any) => r.score === 0 ? `❌ ${r.word}` : `⚠️ ${r.word}`)
         .join('\n');
     } else {
-      const allWordResults: { word: string; correct: boolean }[] = [];
-      session.results.forEach((r: any) => {
-        (r.listWordResults || []).forEach((lwr: any) => {
-          const existing = allWordResults.find(x => x.word === lwr.word);
-          if (existing) {
-            existing.correct = existing.correct && lwr.correct;
-          } else {
-            allWordResults.push({ word: lwr.word, correct: lwr.correct });
-          }
-        });
-      });
-      motsFaux = allWordResults
-        .filter((r: any) => !r.correct)
-        .map((r: any) => `❌ ${r.word}`)
-        .join('\n');
+      motsFaux = session.results.map((r: any, i: number) => {
+        const correct = r.expected === r.firstAttempt;
+        return [
+          `📝 Passage ${i + 1}`,
+          `✏️ Attendu : ${r.expected}`,
+          `💬 Saisi : ${r.firstAttempt}`,
+          correct ? '✅ Correct !' : '❌ Erreur',
+        ].join('\n');
+      }).join('\n\n');
     }
 
-    // ✅ hadRetry est déclaré ICI, en dehors du tableau
-    const hadRetry = session.results.some((r: any) => r.score < 1 && r.secondAttempt);
-
     const message = [
-      `${emoji} <b>Nouvelle dictée terminée !</b>`,
-      `📚 Liste : <b>${session.listName}</b>`,
+      `${emoji} Nouvelle dictée terminée !`,
+      `📚 Liste : ${session.listName}`,
       `📊 Niveau : ${niveau}`,
-      `🎯 Score : <b>${session.totalScore}/${session.maxScore}</b> (${session.percentage}%)`,
+      `🎯 Score : ${session.totalScore}/${session.maxScore} (${session.percentage}%)`,
       `📅 ${new Date(session.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}`,
-      motsFaux
-        ? `\n✏️ <b>Mots à retravailler :</b>\n${motsFaux}`
-        : hadRetry
-          ? '\n⚠️ Tous les mots sont corrects mais certaines phrases ont nécessité une reprise !'
-          : '\n✅ Aucune erreur !',
+      `\n${motsFaux || '✅ Aucune erreur !'}`,
     ].join('\n');
 
     const res = await fetch(`${SUPABASE_URL}/functions/v1/notify-telegram`, {
