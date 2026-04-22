@@ -5,7 +5,6 @@ import { DictationList, WordResult, DictationSession, ValidationState } from '@/
 import { useSpeech } from '@/hooks/useSpeech';
 import { saveSession } from '@/lib/storage';
 import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
 
 interface Props {
   list: DictationList;
@@ -17,13 +16,15 @@ function generateId() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-/** Normalise un texte pour comparaison : minuscules, sans ponctuation, espaces simples. */
-function normalize(text: string): string {
+/** Convertit la ponctuation en mots dictés */
+function expandPunctuation(text: string): string {
   return text
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // retire accents pour comparaison souple
-    .replace(/[.,!?;:'"«»()\-–—]+/g, ' ')
+    .replace(/,/g, ' virgule ')
+    .replace(/\./g, ' point ')
+    .replace(/!/g, ' point d\'exclamation ')
+    .replace(/\?/g, ' point d\'interrogation ')
+    .replace(/;/g, ' point-virgule ')
+    .replace(/:/g, ' deux points ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -49,7 +50,7 @@ interface WordDiff {
   ok: boolean;
 }
 
-/** Compare mot à mot (tolère accents, casse, ponctuation). */
+/** Compare mot à mot (tolère accents, casse). */
 function diffTexts(expected: string, got: string): { diffs: WordDiff[]; correctCount: number; total: number; allCorrect: boolean } {
   const exp = tokenize(expected);
   const g = tokenize(got);
@@ -70,6 +71,16 @@ function diffTexts(expected: string, got: string): { diffs: WordDiff[]; correctC
   return { diffs, correctCount, total: exp.length, allCorrect: correctCount === exp.length && g.length === exp.length };
 }
 
+/** Vérifie si un mot de la liste est bien écrit dans le texte saisi (premier essai) */
+function checkListWords(listWords: string[], userText: string): { word: string; correct: boolean }[] {
+  const normUser = userText.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[.,!?;:'"«»()\-–—]+/g, ' ');
+  return listWords.map(word => {
+    const normWord = word.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const correct = normUser.split(/\s+/).includes(normWord);
+    return { word, correct };
+  });
+}
+
 export default function DictationLevel2({ list, onFinish, onBack }: Props) {
   const { speak } = useSpeech();
   const [passages, setPassages] = useState<string[] | null>(null);
@@ -80,9 +91,10 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
   const [firstAttempt, setFirstAttempt] = useState('');
   const [lastDiff, setLastDiff] = useState<ReturnType<typeof diffTexts> | null>(null);
   const [results, setResults] = useState<WordResult[]>([]);
+  // Suivi des mots de la liste correctement écrits au premier essai
+  const [listWordResults, setListWordResults] = useState<{ word: string; correct: boolean }[]>([]);
   const spokenRef = useRef(false);
 
-  // Charger les passages depuis l'IA au montage
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -106,12 +118,14 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
 
   const currentPassage = passages?.[currentIdx] || '';
 
-  const handleSpeak = useCallback(() => {
-    if (!currentPassage) return;
-    speak(currentPassage, 0.8);
-  }, [currentPassage, speak]);
+  /** Texte dicté avec ponctuation explicitée */
+  const spokenText = expandPunctuation(currentPassage);
 
-  // Lecture automatique du passage dès qu'il est prêt
+  const handleSpeak = useCallback(() => {
+    if (!spokenText) return;
+    speak(spokenText, 0.8);
+  }, [spokenText, speak]);
+
   useEffect(() => {
     if (passages && currentPassage && state === 'pending') {
       if (!spokenRef.current) {
@@ -127,8 +141,22 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
     const diff = diffTexts(currentPassage, userInput);
     setLastDiff(diff);
 
+    // Vérifier les mots de la liste au premier essai
+    const wordChecks = checkListWords(list.words.map(w => w.text), userInput);
+    setListWordResults(prev => {
+      // Merge : un mot déjà correct reste correct
+      const merged = [...list.words.map(w => w.text)].map(word => {
+        const prevResult = prev.find(r => r.word === word);
+        const newResult = wordChecks.find(r => r.word === word);
+        return {
+          word,
+          correct: (prevResult?.correct ?? false) || (newResult?.correct ?? false),
+        };
+      });
+      return merged;
+    });
+
     if (diff.allCorrect) {
-      // Parfait du premier coup → 1pt
       setResults(prev => [...prev, {
         wordId: `p${currentIdx}`,
         word: `Passage ${currentIdx + 1}`,
@@ -147,7 +175,6 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
     if (!userInput.trim() || !currentPassage) return;
     const diff = diffTexts(currentPassage, userInput);
     setLastDiff(diff);
-
     const score = diff.allCorrect ? 0.5 : 0;
     setResults(prev => [...prev, {
       wordId: `p${currentIdx}`,
@@ -163,17 +190,25 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
 
   const handleNext = () => {
     if (!passages) return;
+    const newResults = results.length > 0 ? results : [];
     if (currentIdx + 1 >= passages.length) {
-      // Fin
-      const totalScore = results.reduce((s, r) => s + r.score, 0);
-      const maxScore = results.length || 1;
+      const finalResults = [...newResults];
+      const totalScore = finalResults.reduce((s, r) => s + r.score, 0);
+      const maxScore = finalResults.length || 1;
+
+      // Ajouter les infos des mots de la liste pour Telegram
+      const sessionResults = finalResults.map(r => ({
+        ...r,
+        listWordResults,
+      }));
+
       const session: DictationSession = {
         id: generateId(),
         date: new Date().toISOString(),
         level: 2,
         listId: list.id,
         listName: list.name,
-        results,
+        results: sessionResults as any,
         totalScore,
         maxScore,
         percentage: Math.round((totalScore / maxScore) * 100),
@@ -190,7 +225,6 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
     spokenRef.current = false;
   };
 
-  // Enter global en état final
   useEffect(() => {
     if (state !== 'final') return;
     let ready = false;
@@ -206,7 +240,6 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
     };
   }, [state, currentIdx, results, passages]);
 
-  // États de chargement / erreur
   if (loadError) {
     return (
       <div className="max-w-2xl mx-auto text-center py-12 space-y-4">
@@ -232,7 +265,6 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <button onClick={onBack} className="btn-playful bg-muted text-muted-foreground text-sm py-2 px-4">
           <Home size={16} /> Retour
@@ -246,7 +278,6 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
         </span>
       </div>
 
-      {/* Progress bar */}
       <div className="h-3 rounded-full bg-muted overflow-hidden">
         <motion.div
           className="h-full rounded-full bg-primary"
@@ -255,7 +286,6 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
         />
       </div>
 
-      {/* Bouton lecture */}
       <motion.div
         key={`listen-${currentIdx}`}
         initial={{ opacity: 0, y: 10 }}
@@ -263,18 +293,16 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
         className="card-playful flex flex-col items-center gap-4 py-8"
       >
         <p className="text-sm text-muted-foreground font-body">
-          🎧 Écoute le passage et écris-le
+          🎧 Écoute le passage et écris-le (avec la ponctuation !)
         </p>
         <button
           onClick={handleSpeak}
           className="btn-playful bg-primary text-primary-foreground text-lg px-8 py-4"
-          title="Réécouter le passage"
         >
           <Volume2 size={24} /> Réécouter
         </button>
       </motion.div>
 
-      {/* Zone de saisie */}
       <motion.div
         key={`input-${currentIdx}`}
         initial={{ opacity: 0, x: 30 }}
@@ -284,7 +312,7 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
         <textarea
           value={userInput}
           onChange={e => setUserInput(e.target.value)}
-          placeholder="Écris ici ce que tu entends..."
+          placeholder="Écris ici ce que tu entends (avec la ponctuation)..."
           spellCheck={false}
           autoComplete="off"
           autoCorrect="off"
@@ -310,7 +338,6 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
           autoFocus
         />
 
-        {/* Feedback */}
         <AnimatePresence>
           {state === 'correcting' && lastDiff && (
             <motion.div
@@ -360,7 +387,6 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
           )}
         </AnimatePresence>
 
-        {/* Action buttons */}
         <div className="flex justify-center gap-3">
           {state === 'pending' && (
             <button onClick={handleFirstValidation} className="btn-playful bg-primary text-primary-foreground">
@@ -383,7 +409,6 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
         </div>
       </motion.div>
 
-      {/* Score en cours */}
       {results.length > 0 && (
         <div className="text-center text-sm text-muted-foreground font-body">
           Score en cours : {results.reduce((s, r) => s + r.score, 0)}/{results.length}
