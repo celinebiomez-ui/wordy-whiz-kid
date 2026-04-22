@@ -99,13 +99,11 @@ export async function saveSession(session: DictationSession): Promise<void> {
 
   // 2. Sauvegarde dans la table centrale `resultats`
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/resultats`, {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/save-result`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'apikey': SUPABASE_KEY,
         'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'Prefer': 'return=minimal',
       },
       body: JSON.stringify({
         type: 'dictée',
