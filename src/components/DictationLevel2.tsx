@@ -123,7 +123,7 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
 
   const handleSpeak = useCallback(() => {
     if (!spokenText) return;
-    speak(spokenText, 0.8);
+    speak(spokenText, 0.7);
   }, [spokenText, speak]);
 
   useEffect(() => {
