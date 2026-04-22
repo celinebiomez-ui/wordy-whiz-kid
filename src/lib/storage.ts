@@ -163,7 +163,13 @@ export async function saveSession(session: DictationSession): Promise<void> {
       `📊 Niveau : ${niveau}`,
       `🎯 Score : <b>${session.totalScore}/${session.maxScore}</b> (${session.percentage}%)`,
       `📅 ${new Date(session.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}`,
-      motsFaux ? `\n✏️ <b>Mots à retravailler :</b>\n${motsFaux}` : '\n✅ Aucune erreur !',
+      const hadRetry = session.results.some((r: any) => r.score < 1 && r.secondAttempt);
+
+motsFaux 
+  ? `\n✏️ <b>Mots à retravailler :</b>\n${motsFaux}` 
+  : hadRetry 
+    ? '\n⚠️ Tous les mots sont corrects mais certaines phrases ont nécessité une reprise !' 
+    : '\n✅ Aucune erreur !',
     ].join('\n');
 
     const res = await fetch(`${SUPABASE_URL}/functions/v1/notify-telegram`, {
