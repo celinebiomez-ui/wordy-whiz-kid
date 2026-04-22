@@ -22,10 +22,19 @@ export default function ResultsHistory() {
         load();
       })
       .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, []);
+
+  const handleDelete = async (session: DictationSession) => {
+    const pwd = prompt('🔐 Mot de passe :');
+    if (pwd !== 'BRAVO') return;
+    if (!confirm(`Supprimer la dictée du ${new Date(session.date).toLocaleDateString('fr-FR')} ?`)) return;
+    const { error } = await supabase
+      .from('dictation_sessions')
+      .delete()
+      .eq('id', session.id);
+    if (error) console.error('Erreur suppression:', error);
+  };
 
   if (loading) {
     return (
@@ -57,51 +66,9 @@ export default function ResultsHistory() {
               <th className="text-left py-3 px-4 font-display text-sm text-muted-foreground">📚 Liste</th>
               <th className="text-left py-3 px-4 font-display text-sm text-muted-foreground">🧮 Score</th>
               <th className="text-left py-3 px-4 font-display text-sm text-muted-foreground">📈 %</th>
+              <th className="py-3 px-4" />
             </tr>
           </thead>
           <tbody>
             {sessions.map((session, i) => (
               <motion.tr
-                key={session.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className="border-b border-border/50 hover:bg-muted/30 transition-colors"
-              >
-                <td className="py-3 px-4 font-body text-sm text-foreground">
-                  {new Date(session.date).toLocaleDateString('fr-FR')}
-                </td>
-                <td className="py-3 px-4">
-                  <span className={`inline-flex items-center rounded-lg px-2 py-1 text-xs font-bold ${
-                    session.level === 1
-                      ? 'bg-secondary/20 text-secondary'
-                      : 'bg-accent/20 text-accent'
-                  }`}>
-                    Niveau {session.level}
-                  </span>
-                </td>
-                <td className="py-3 px-4 font-body text-sm text-foreground">{session.listName}</td>
-                <td className="py-3 px-4 font-body text-sm text-foreground">
-                  {session.totalScore}/{session.maxScore}
-                </td>
-                <td className="py-3 px-4">
-                  <span className={`font-bold text-sm ${
-                    session.percentage >= 80
-                      ? 'text-success'
-                      : session.percentage >= 50
-                        ? 'text-warning-foreground'
-                        : 'text-destructive'
-                  }`}>
-                    {session.percentage}%
-                    {session.percentage >= 80 && ' 🌟'}
-                    {session.percentage === 100 && ' 🏆'}
-                  </span>
-                </td>
-              </motion.tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
