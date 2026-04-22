@@ -72,3 +72,54 @@ export default function ResultsHistory() {
           <tbody>
             {sessions.map((session, i) => (
               <motion.tr
+                key={session.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className="border-b border-border/50 hover:bg-muted/30 transition-colors"
+              >
+                <td className="py-3 px-4 font-body text-sm text-foreground">
+                  {new Date(session.date).toLocaleDateString('fr-FR')}
+                </td>
+                <td className="py-3 px-4">
+                  <span className={`inline-flex items-center rounded-lg px-2 py-1 text-xs font-bold ${
+                    session.level === 1
+                      ? 'bg-secondary/20 text-secondary'
+                      : 'bg-accent/20 text-accent'
+                  }`}>
+                    Niveau {session.level}
+                  </span>
+                </td>
+                <td className="py-3 px-4 font-body text-sm text-foreground">{session.listName}</td>
+                <td className="py-3 px-4 font-body text-sm text-foreground">
+                  {session.totalScore}/{session.maxScore}
+                </td>
+                <td className="py-3 px-4">
+                  <span className={`font-bold text-sm ${
+                    session.percentage >= 80
+                      ? 'text-success'
+                      : session.percentage >= 50
+                        ? 'text-warning-foreground'
+                        : 'text-destructive'
+                  }`}>
+                    {session.percentage}%
+                    {session.percentage >= 80 && ' 🌟'}
+                    {session.percentage === 100 && ' 🏆'}
+                  </span>
+                </td>
+                <td className="py-3 px-4">
+                  <button
+                    onClick={() => handleDelete(session)}
+                    className="text-muted-foreground hover:text-destructive transition-colors"
+                  >
+                    ✕
+                  </button>
+                </td>
+              </motion.tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
