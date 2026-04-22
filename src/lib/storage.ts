@@ -172,4 +172,5 @@ export async function saveSession(session: DictationSession): Promise<void> {
     }
   } catch (e) {
     console.error('Erreur notification Telegram:', e);
-  }
+    }
+}
