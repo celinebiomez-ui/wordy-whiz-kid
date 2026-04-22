@@ -132,19 +132,16 @@ export async function saveSession(session: DictationSession): Promise<void> {
     let motsFaux = '';
 
     if (session.level === 1) {
-      // Niveau 1 : mots ratés directement
       motsFaux = session.results
         .filter((r: any) => r.score < 1)
         .map((r: any) => r.score === 0 ? `❌ ${r.word}` : `⚠️ ${r.word}`)
         .join('\n');
     } else {
-      // Niveau 2 : un mot est correct seulement s'il est correct dans tous les passages
       const allWordResults: { word: string; correct: boolean }[] = [];
       session.results.forEach((r: any) => {
         (r.listWordResults || []).forEach((lwr: any) => {
           const existing = allWordResults.find(x => x.word === lwr.word);
           if (existing) {
-            // Correct seulement si correct dans tous les passages
             existing.correct = existing.correct && lwr.correct;
           } else {
             allWordResults.push({ word: lwr.word, correct: lwr.correct });
@@ -157,19 +154,20 @@ export async function saveSession(session: DictationSession): Promise<void> {
         .join('\n');
     }
 
+    // ✅ hadRetry est déclaré ICI, en dehors du tableau
+    const hadRetry = session.results.some((r: any) => r.score < 1 && r.secondAttempt);
+
     const message = [
       `${emoji} <b>Nouvelle dictée terminée !</b>`,
       `📚 Liste : <b>${session.listName}</b>`,
       `📊 Niveau : ${niveau}`,
       `🎯 Score : <b>${session.totalScore}/${session.maxScore}</b> (${session.percentage}%)`,
       `📅 ${new Date(session.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}`,
-      const hadRetry = session.results.some((r: any) => r.score < 1 && r.secondAttempt);
-
-motsFaux 
-  ? `\n✏️ <b>Mots à retravailler :</b>\n${motsFaux}` 
-  : hadRetry 
-    ? '\n⚠️ Tous les mots sont corrects mais certaines phrases ont nécessité une reprise !' 
-    : '\n✅ Aucune erreur !',
+      motsFaux
+        ? `\n✏️ <b>Mots à retravailler :</b>\n${motsFaux}`
+        : hadRetry
+          ? '\n⚠️ Tous les mots sont corrects mais certaines phrases ont nécessité une reprise !'
+          : '\n✅ Aucune erreur !',
     ].join('\n');
 
     const res = await fetch(`${SUPABASE_URL}/functions/v1/notify-telegram`, {
@@ -189,5 +187,5 @@ motsFaux
     }
   } catch (e) {
     console.error('Erreur notification Telegram:', e);
-    }
+  }
 }
