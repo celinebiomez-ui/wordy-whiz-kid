@@ -128,11 +128,23 @@ export async function saveSession(session: DictationSession): Promise<void> {
   try {
     const emoji = session.percentage >= 80 ? '🌟' : session.percentage >= 50 ? '👍' : '💪';
     const niveau = session.level === 1 ? 'Niveau 1 — Mots' : 'Niveau 2 — Phrases';
-    
-    const motsFaux = session.results
-      .filter((r: any) => r.score < 1)
-      .map((r: any) => r.score === 0 ? `❌ ${r.word}` : `⚠️ ${r.word}`)
-      .join('\n');
+
+    let motsFaux = '';
+
+    if (session.level === 1) {
+      // Niveau 1 : mots ratés directement
+      motsFaux = session.results
+        .filter((r: any) => r.score < 1)
+        .map((r: any) => r.score === 0 ? `❌ ${r.word}` : `⚠️ ${r.word}`)
+        .join('\n');
+    } else {
+      // Niveau 2 : mots de la liste mal orthographiés au premier essai
+      const listWordResults = session.results[0]?.listWordResults || [];
+      motsFaux = listWordResults
+        .filter((r: any) => !r.correct)
+        .map((r: any) => `❌ ${r.word}`)
+        .join('\n');
+    }
 
     const message = [
       `${emoji} <b>Nouvelle dictée terminée !</b>`,
@@ -161,4 +173,3 @@ export async function saveSession(session: DictationSession): Promise<void> {
   } catch (e) {
     console.error('Erreur notification Telegram:', e);
   }
-}
