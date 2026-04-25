@@ -98,6 +98,7 @@ export async function saveSession(session: DictationSession): Promise<void> {
   }
 
   // 2. Sauvegarde dans la table centrale `resultats`
+  // details contient list_name, level ET les mots pour permettre l'affichage dans Mon Aide Devoirs
   try {
     const res = await fetch(`${SUPABASE_URL}/functions/v1/save-result`, {
       method: 'POST',
@@ -112,10 +113,10 @@ export async function saveSession(session: DictationSession): Promise<void> {
         max_score: session.maxScore,
         percentage: session.percentage,
         details: {
-  list_name: session.listName,
-  level: session.level,
-  words: session.results,
-},
+          list_name: session.listName,
+          level: session.level,
+          words: session.results,
+        },
       }),
     });
     if (!res.ok) {
