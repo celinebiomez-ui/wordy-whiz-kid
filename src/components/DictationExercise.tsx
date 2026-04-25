@@ -31,6 +31,7 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
   const [showCorrection, setShowCorrection] = useState(false);
   const [firstAttempt, setFirstAttempt] = useState('');
   const [isFinished, setIsFinished] = useState(false);
+  const [isSaving, setIsSaving] = useState(false); // protection double clic
 
   // --- AJOUT : prévisualisation niveau 1 ---
   const [showPreview, setShowPreview] = useState(level === 1);
@@ -169,6 +170,8 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
 
   const handleNext = async () => {
     if (currentIndex + 1 >= totalItems) {
+      if (isSaving) return; // ← bloque le double clic
+      setIsSaving(true);
       const allResults = [...results];
       const totalScore = allResults.reduce((sum, r) => sum + r.score, 0);
       const maxScore = allResults.length;
@@ -430,9 +433,12 @@ export default function DictationExercise({ list, level, onFinish, onBack }: Pro
           {state === 'final' && (
             <button
               onClick={handleNext}
-              className="btn-playful bg-primary text-primary-foreground"
+              disabled={isSaving}
+              className={`btn-playful bg-primary text-primary-foreground ${isSaving ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
-              {currentIndex + 1 >= totalItems
+              {isSaving
+                ? '⏳ Enregistrement…'
+                : currentIndex + 1 >= totalItems
                 ? '🏁 Terminer'
                 : (
                   <>
