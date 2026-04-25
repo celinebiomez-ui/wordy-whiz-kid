@@ -91,8 +91,8 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
   const [firstAttempt, setFirstAttempt] = useState('');
   const [lastDiff, setLastDiff] = useState<ReturnType<typeof diffTexts> | null>(null);
   const [results, setResults] = useState<WordResult[]>([]);
-  // Suivi des mots de la liste correctement écrits au premier essai
   const [listWordResults, setListWordResults] = useState<{ word: string; correct: boolean }[]>([]);
+  const [isSaving, setIsSaving] = useState(false); // protection double clic
   const spokenRef = useRef(false);
 
   useEffect(() => {
@@ -117,8 +117,6 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
   }, [list.id]);
 
   const currentPassage = passages?.[currentIdx] || '';
-
-  /** Texte dicté avec ponctuation explicitée */
   const spokenText = expandPunctuation(currentPassage);
 
   const handleSpeak = useCallback(() => {
@@ -141,10 +139,8 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
     const diff = diffTexts(currentPassage, userInput);
     setLastDiff(diff);
 
-    // Vérifier les mots de la liste au premier essai
     const wordChecks = checkListWords(list.words.map(w => w.text), userInput);
     setListWordResults(prev => {
-      // Merge : un mot déjà correct reste correct
       const merged = [...list.words.map(w => w.text)].map(word => {
         const prevResult = prev.find(r => r.word === word);
         const newResult = wordChecks.find(r => r.word === word);
@@ -188,15 +184,16 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
     setState('final');
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (!passages) return;
     const newResults = results.length > 0 ? results : [];
     if (currentIdx + 1 >= passages.length) {
+      if (isSaving) return; // bloque le double clic
+      setIsSaving(true);
       const finalResults = [...newResults];
       const totalScore = finalResults.reduce((s, r) => s + r.score, 0);
       const maxScore = finalResults.length || 1;
 
-      // Ajouter les infos des mots de la liste pour Telegram
       const sessionResults = finalResults.map(r => ({
         ...r,
         listWordResults,
@@ -213,7 +210,7 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
         maxScore,
         percentage: Math.round((totalScore / maxScore) * 100),
       };
-      saveSession(session);
+      await saveSession(session);
       onFinish(session);
       return;
     }
@@ -399,10 +396,16 @@ export default function DictationLevel2({ list, onFinish, onBack }: Props) {
             </button>
           )}
           {state === 'final' && (
-            <button onClick={handleNext} className="btn-playful bg-primary text-primary-foreground">
-              {currentIdx + 1 >= passages.length
-                ? '🏁 Terminer'
-                : <><ArrowRight size={20} /> Suivant</>
+            <button
+              onClick={handleNext}
+              disabled={isSaving}
+              className={`btn-playful bg-primary text-primary-foreground ${isSaving ? 'opacity-60 cursor-not-allowed' : ''}`}
+            >
+              {isSaving
+                ? '⏳ Enregistrement…'
+                : currentIdx + 1 >= passages.length
+                  ? '🏁 Terminer'
+                  : <><ArrowRight size={20} /> Suivant</>
               }
             </button>
           )}
