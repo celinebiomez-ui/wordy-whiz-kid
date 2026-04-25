@@ -111,7 +111,11 @@ export async function saveSession(session: DictationSession): Promise<void> {
         score: session.totalScore,
         max_score: session.maxScore,
         percentage: session.percentage,
-        details: session.results,
+        details: {
+  list_name: session.listName,
+  level: session.level,
+  words: session.results,
+},
       }),
     });
     if (!res.ok) {
